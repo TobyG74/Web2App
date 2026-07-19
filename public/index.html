@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Web2App Converter</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #0e1116; --card: #171b22; --line: #2a303a; --fg: #e6e9ef; --mut: #9aa4b2;
+    --accent: #6d8bff; --accent2: #9b6dff; --ok: #37d399; --err: #ff6b6b;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f4f6fb; --card:#fff; --line:#e3e8f0; --fg:#1a1d24; --mut:#66707e; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; font-family: system-ui, sans-serif; color: var(--fg);
+    background: radial-gradient(1200px 600px at 80% -10%, #6d8bff22, transparent), var(--bg);
+    display: grid; place-items: center; padding: 2rem 1rem;
+  }
+  .card {
+    width: 100%; max-width: 30rem; background: var(--card); border: 1px solid var(--line);
+    border-radius: 1rem; padding: 1.75rem; box-shadow: 0 20px 60px #0004;
+  }
+  h1 { margin: 0 0 .25rem; font-size: 1.35rem; }
+  .sub { margin: 0 0 1.4rem; color: var(--mut); font-size: .9rem; }
+  label { display: block; font-size: .8rem; color: var(--mut); margin: 0 0 .35rem; }
+  .field { margin-bottom: 1.1rem; }
+  input[type=url], input[type=text] {
+    width: 100%; padding: .7rem .8rem; border-radius: .6rem; border: 1px solid var(--line);
+    background: var(--bg); color: var(--fg); font: inherit;
+  }
+  input:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  .iconrow { display: flex; align-items: center; gap: .8rem; }
+  .preview {
+    width: 56px; height: 56px; border-radius: .7rem; border: 1px solid var(--line);
+    background: var(--bg) center/60% no-repeat; flex: none; display: grid; place-items: center;
+    color: var(--mut); font-size: .65rem; overflow: hidden;
+  }
+  .preview img { width: 100%; height: 100%; object-fit: contain; }
+  .iconbtns { display: flex; flex-direction: column; gap: .35rem; }
+  .mini { font-size: .75rem; color: var(--mut); }
+  .plats { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+  .plat {
+    border: 1px solid var(--line); border-radius: .6rem; padding: .6rem .7rem; cursor: pointer;
+    display: flex; gap: .5rem; align-items: center; font-size: .9rem; background: var(--bg);
+  }
+  .plat input { accent-color: var(--accent); }
+  .plat:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .plat small { display: block; color: var(--mut); font-size: .7rem; }
+  button.go {
+    width: 100%; margin-top: 1.3rem; padding: .8rem; border: 0; border-radius: .7rem; cursor: pointer;
+    font: inherit; font-weight: 600; color: #fff;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+  }
+  button.go:disabled { opacity: .55; cursor: wait; }
+  .filebtn { font-size: .78rem; color: var(--accent); background: none; border: 0; cursor: pointer; padding: 0; text-align: left; }
+  #status { margin-top: 1rem; min-height: 1.3rem; font-size: .85rem; }
+  #status.ok { color: var(--ok); } #status.err { color: var(--err); }
+  .check { display: flex; gap: .55rem; align-items: flex-start; cursor: pointer; font-size: .9rem; color: var(--fg); }
+  .check input { accent-color: var(--accent); margin-top: .15rem; }
+  .check small { display: block; color: var(--mut); font-size: .72rem; margin-top: .15rem; }
+  .credit { margin-top: 1.4rem; padding-top: 1rem; border-top: 1px solid var(--line); text-align: center; font-size: .75rem; color: var(--mut); }
+  .credit a { color: var(--accent); text-decoration: none; }
+  .credit a:hover { text-decoration: underline; }
+  .credit .repo { display: inline-flex; align-items: center; gap: .4rem; margin-bottom: .5rem;
+    padding: .35rem .7rem; border: 1px solid var(--line); border-radius: 2rem; font-size: .78rem; }
+  .credit .repo:hover { border-color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Web2App Converter</h1>
+    <p class="sub">Tempel URL, dapat aplikasi jadi. Nama & icon otomatis dari situs, bisa diganti.</p>
+
+    <form id="f">
+      <div class="field">
+        <label for="url">URL website</label>
+        <input id="url" type="url" placeholder="https://situskamu.com" required />
+      </div>
+
+      <div class="field">
+        <label for="name">Nama aplikasi</label>
+        <input id="name" type="text" placeholder="otomatis dari judul situs" />
+      </div>
+
+      <div class="field">
+        <label>Icon</label>
+        <div class="iconrow">
+          <div class="preview" id="preview">auto</div>
+          <div class="iconbtns">
+            <button type="button" class="filebtn" id="pick">Pilih file icon…</button>
+            <button type="button" class="filebtn" id="clear" hidden>Pakai icon situs (auto)</button>
+            <span class="mini">Kosongkan = favicon situs</span>
+          </div>
+          <input id="iconfile" type="file" accept="image/*" hidden />
+        </div>
+      </div>
+
+      <div class="field" id="pkgField" hidden>
+        <label for="pkg">Package name (Android)</label>
+        <input id="pkg" type="text" placeholder="com.perusahaanmu.namaapp" />
+        <span class="mini">Kosongkan = com.html2exe.webapp</span>
+      </div>
+
+      <div class="field">
+        <label>Platform</label>
+        <div class="plats">
+          <label class="plat"><input type="radio" name="p" value="windows" checked /> <span>Windows<small>.exe (zip)</small></span></label>
+          <label class="plat"><input type="radio" name="p" value="linux" /> <span>Linux<small>AppImage/zip</small></span></label>
+          <label class="plat"><input type="radio" name="p" value="mac" /> <span>macOS<small>unsigned</small></span></label>
+          <label class="plat"><input type="radio" name="p" value="apk" /> <span>Android<small>.apk</small></span></label>
+        </div>
+      </div>
+
+      <div class="field" id="singleField">
+        <label class="check">
+          <input id="single" type="checkbox" checked />
+          <span>Satu file .exe saja<small>Bundel semua .dll/.pak jadi 1 .exe portable (dikirim dalam zip). Build lebih lama.</small></span>
+        </label>
+      </div>
+
+      <button class="go" id="go" type="submit">Build & Download</button>
+    </form>
+    <div id="status"></div>
+    <footer class="credit">
+      <a class="repo" href="https://github.com/TobyG74/Web2App" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        Source code di GitHub
+      </a>
+      <div>
+        Dibuat oleh <strong>Tobz</strong> ·
+        <a href="https://github.com/TobyG74" target="_blank" rel="noopener">@TobyG74</a> ·
+        <a href="https://instagram.com/ini.tobz" target="_blank" rel="noopener">IG @ini.tobz</a>
+      </div>
+    </footer>
+  </div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const f = $("f"), status = $("status"), go = $("go"), preview = $("preview");
+let iconDataUrl = null;
+
+function updatePkgVisibility() {
+  $("pkgField").hidden = f.p.value !== "apk";
+  $("singleField").hidden = f.p.value !== "windows"; // portable target is Windows-only
+}
+f.querySelectorAll('input[name="p"]').forEach((r) => r.addEventListener("change", updatePkgVisibility));
+updatePkgVisibility();
+
+// live favicon preview from the typed URL (default icon)
+function autoIcon() {
+  if (iconDataUrl) return;
+  try {
+    const host = new URL($("url").value).hostname;
+    preview.innerHTML = `<img src="https://www.google.com/s2/favicons?sz=128&domain=${host}" alt="" />`;
+  } catch { preview.innerHTML = "auto"; }
+}
+$("url").addEventListener("input", autoIcon);
+
+$("pick").addEventListener("click", () => $("iconfile").click());
+$("iconfile").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    iconDataUrl = rd.result;
+    preview.innerHTML = `<img src="${iconDataUrl}" alt="" />`;
+    $("clear").hidden = false;
+  };
+  rd.readAsDataURL(file);
+});
+$("clear").addEventListener("click", () => {
+  iconDataUrl = null; $("iconfile").value = ""; $("clear").hidden = true; autoIcon();
+});
+
+f.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  go.disabled = true; status.className = "";
+  status.textContent = "Building… 1–3 menit (download Electron / gradle). Jangan tutup tab.";
+  try {
+    const r = await fetch("/api/build", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: $("url").value, platform: f.p.value,
+        name: $("name").value, iconDataUrl, singleFile: $("single").checked,
+        packageName: $("pkg").value,
+      }),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+    const blob = await r.blob();
+    const name = (r.headers.get("Content-Disposition") || "").match(/filename="?([^"]+)"?/)?.[1] || "app";
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = name; a.click();
+    status.className = "ok"; status.textContent = "Selesai ✓ file terunduh.";
+  } catch (err) {
+    status.className = "err"; status.textContent = "Gagal: " + err.message;
+  } finally {
+    go.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

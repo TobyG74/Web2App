@@ -1,0 +1,16 @@
+{
+  "name": "converter-html2app",
+  "version": "0.1.0",
+  "description": "Paste a URL, get a desktop .exe/.app/.AppImage or Android .apk",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "electron-builder": "^26.15.3",
+    "express": "^4.19.2",
+    "nativefier": "^52.0.0",
+    "png-to-ico": "^3.0.2"
+  }
+}
