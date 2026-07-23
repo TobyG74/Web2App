@@ -13,6 +13,34 @@ npm start          # http://localhost:3000
 
 Buka browser, tempel URL, pilih platform, klik build.
 
+## Jalankan via Docker
+
+Image sudah membawa semua yang dibutuhkan build Linux: Node, JDK 17, Android SDK,
+dan Wine. **Besar (~3–4 GB)** dan build pertama lama karena mengunduh SDK.
+
+```bash
+docker compose up -d --build        # http://localhost:4444
+```
+
+Atau tanpa compose:
+
+```bash
+docker build -t html2app .
+docker run -d -p 4444:4444 -e ACCESS_TOKEN=rahasia html2app
+```
+
+Kecilkan image dengan mematikan yang tak dipakai (mis. hanya butuh `.exe`):
+
+```bash
+docker build --build-arg WITH_ANDROID=0 -t html2app .   # tanpa APK  (~1.5 GB lebih kecil)
+docker build --build-arg WITH_WINE=0    -t html2app .   # .exe tanpa ikon/metadata
+```
+
+- `ACCESS_TOKEN` diteruskan lewat env — set kalau diekspos publik.
+- Volume `electron-cache` menyimpan unduhan Electron/nativefier antar-restart
+  (build kedua dst. tak mengunduh ulang ~150 MB).
+- **macOS tetap tidak bisa** di Docker — butuh mesin Mac.
+
 ## Syarat per platform
 
 | Platform | Butuh apa di server | Status |

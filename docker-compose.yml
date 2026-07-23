@@ -1,0 +1,13 @@
+services:
+  html2app:
+    build: .
+    ports:
+      - "4444:4444"
+    environment:
+      ACCESS_TOKEN: ${ACCESS_TOKEN:-}
+    volumes:
+      - electron-cache:/root/.cache
+    restart: unless-stopped
+
+volumes:
+  electron-cache:
