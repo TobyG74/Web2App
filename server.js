@@ -2,10 +2,11 @@ import express from "express";
 import archiver from "archiver";
 import { spawn } from "node:child_process";
 import { mkdtemp, rm, cp, mkdir, readFile, writeFile, readdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, createWriteStream } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 import dns from "node:dns/promises";
 import net from "node:net";
 import pngToIco from "png-to-ico";
@@ -21,8 +22,54 @@ app.set("trust proxy", true);
 app.use(express.json({ limit: "2mb" }));
 app.use(express.static(join(__dirname, "public")));
 
-// Add a real queue (bullmq) only when concurrent users actually show up.
-let building = false;
+// Build job queue 
+const jobs = new Map();            // id -> job
+const queue = [];                  // ids waiting to build
+let working = false;               // a build is currently running
+const MAX_QUEUE = 20;
+const JOB_TTL_MS = 20 * 60 * 1000; // keep a finished job downloadable this long
+
+function enqueue(job) {
+  jobs.set(job.id, job);
+  queue.push(job.id);
+  processQueue();
+}
+
+async function processQueue() {
+  if (working) return;
+  const id = queue.shift();
+  if (id === undefined) return;
+  const job = jobs.get(id);
+  if (!job) return processQueue();
+  working = true;
+  job.status = "building";
+  try {
+    job.result = await runBuild(job);
+    job.status = "done";
+  } catch (e) {
+    console.error("[build] failed:", e);
+    job.error = "Build gagal. Coba lagi atau periksa URL.";
+    job.status = "error";
+    cleanup(job.work);
+  } finally {
+    job.finishedAt = Date.now();
+    working = false;
+    processQueue();
+  }
+}
+
+// Sweep finished/stale jobs so temp dirs and the map don't grow forever.
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, job] of jobs) {
+    const done = job.status === "done" || job.status === "error";
+    const ref = job.finishedAt || job.createdAt;
+    if ((done && now - ref > JOB_TTL_MS) || now - job.createdAt > 60 * 60 * 1000) {
+      cleanup(job.work);
+      jobs.delete(id);
+    }
+  }
+}, 5 * 60 * 1000).unref();
 
 const NATIVEFIER_PLATFORM = { windows: "windows", linux: "linux", mac: "osx" };
 
@@ -242,17 +289,51 @@ app.post("/api/build", async (req, res) => {
   } catch (e) {
     return res.status(400).json({ error: String(e.message || "URL tidak valid") });
   }
-
   const packageName = rawPackage && rawPackage.trim() ? rawPackage.trim() : DEFAULT_PACKAGE;
   if (platform === "apk" && !PACKAGE_RE.test(packageName)) {
     return res.status(400).json({ error: "Package name tidak valid, contoh: com.perusahaanmu.namaapp" });
   }
-  if (building) return res.status(429).json({ error: "Server lagi build lain, coba lagi sebentar" });
+  if (queue.length >= MAX_QUEUE) {
+    return res.status(503).json({ error: "Antrian penuh, coba lagi nanti" });
+  }
 
-  building = true;
+  // Enqueue and return immediately — the heavy work happens in the queue worker,
+  // so this response lands well within any proxy's header timeout.
   const work = await mkdtemp(join(tmpdir(), "h2e-"));
-  const safeUrl = target.href;
-  // sanitizeName here guarantees the display name can never start with "-"
+  const job = {
+    id: randomUUID(),
+    status: "queued",
+    createdAt: Date.now(),
+    work,
+    params: { platform, safeUrl: target.href, rawName, iconDataUrl, packageName, singleFile },
+  };
+  enqueue(job);
+  res.status(202).json({ id: job.id });
+});
+
+app.get("/api/build/:id", (req, res) => {
+  const job = jobs.get(req.params.id);
+  if (!job) return res.status(404).json({ error: "Job tidak ditemukan atau kedaluwarsa" });
+  const position = job.status === "queued" ? queue.indexOf(job.id) + 1 : 0;
+  res.json({ status: job.status, position, error: job.error, name: job.result?.name });
+});
+
+app.get("/api/build/:id/download", (req, res) => {
+  const job = jobs.get(req.params.id);
+  if (!job) return res.status(404).json({ error: "Job tidak ditemukan atau kedaluwarsa" });
+  if (job.status !== "done") return res.status(409).json({ error: "Build belum selesai" });
+  // The unguessable UUID is the access control here — a link navigation can't
+  // carry the ACCESS_TOKEN header, and the id only exists after an authed POST.
+  res.download(job.result.file, job.result.name, (err) => {
+    if (!err) { cleanup(job.work); jobs.delete(job.id); } // one-shot; sweeper covers aborts
+  });
+});
+
+// The actual build. Returns { file, name } for the queue worker to serve later.
+async function runBuild(job) {
+  const { platform, safeUrl, rawName, iconDataUrl, packageName, singleFile } = job.params;
+  const work = job.work;
+  // sanitizeName guarantees the display name can never start with "-"
   // (argument injection) and is bounded/clean before hitting the CLI.
   const displayName =
     sanitizeName(rawName || "") ||
@@ -263,50 +344,50 @@ app.post("/api/build", async (req, res) => {
   // favicon. nativefier's own auto-detect is unreliable, so we pass --icon.
   let iconPath = await resolveIcon(work, iconDataUrl, safeUrl);
   if (iconPath && platform === "windows") iconPath = await toIco(work, iconPath);
-  try {
-    if (platform === "apk") {
-      const apk = await buildApk(work, safeUrl, displayName, iconPath, packageName);
-      res.download(apk, `${fileBase}.apk`, () => cleanup(work));
-      return;
-    }
-    // desktop: nativefier -> folder -> zip
-    const out = join(work, "out");
-    const args = ["--name", displayName, "--platform", NATIVEFIER_PLATFORM[platform]];
-    // ponytail: windows gets a converted .ico; linux takes PNG directly.
-    // macOS wants .icns and we don't convert that — needs a Mac anyway.
-    if (iconPath) args.push("--icon", iconPath);
-    args.push(safeUrl, out);
-    await run(process.execPath, [await binEntry("nativefier"), ...args], { shell: false });
-    const built = join(out, (await readdir(out))[0]); // nativefier makes one subfolder
-    if (platform === "windows" && singleFile) {
-      const exe = await toPortableExe(work, built, displayName, fileBase, iconPath);
-      res.attachment(`${fileBase}-portable.zip`);
-      // level 0: the portable exe is already 7z-compressed inside, so deflating
-      // it again costs CPU for ~nothing. The zip is just a delivery wrapper —
-      // browsers and AV are far happier with a .zip than a bare .exe.
-      const zip = archiver("zip", { zlib: { level: 0 } });
-      zip.on("end", () => cleanup(work));
-      zip.on("error", (e) => { throw e; });
-      zip.pipe(res);
-      zip.file(exe, { name: `${displayName}.exe` });
-      await zip.finalize();
-      return;
-    }
-    res.attachment(`${fileBase}-${platform}.zip`);
-    const zip = archiver("zip", { zlib: { level: 9 } });
-    zip.on("end", () => cleanup(work));
-    zip.on("error", (e) => { throw e; });
-    zip.pipe(res);
-    zip.directory(built, fileBase);
-    await zip.finalize();
-  } catch (e) {
-    cleanup(work);
-    console.error("[build] failed:", e);
-    if (!res.headersSent) res.status(500).json({ error: "Build gagal. Coba lagi atau periksa URL." });
-  } finally {
-    building = false;
+
+  if (platform === "apk") {
+    const apk = await buildApk(work, safeUrl, displayName, iconPath, packageName);
+    return { file: apk, name: `${fileBase}.apk` };
   }
-});
+
+  // desktop: nativefier -> folder
+  const out = join(work, "out");
+  const args = ["--name", displayName, "--platform", NATIVEFIER_PLATFORM[platform]];
+  // ponytail: windows gets a converted .ico; linux takes PNG directly.
+  // macOS wants .icns and we don't convert that — needs a Mac anyway.
+  if (iconPath) args.push("--icon", iconPath);
+  args.push(safeUrl, out);
+  await run(process.execPath, [await binEntry("nativefier"), ...args], { shell: false });
+  const built = join(out, (await readdir(out))[0]); // nativefier makes one subfolder
+
+  if (platform === "windows" && singleFile) {
+    const exe = await toPortableExe(work, built, displayName, fileBase, iconPath);
+    // level 0: the portable exe is already 7z-compressed inside, so deflating
+    // it again costs CPU for ~nothing. The zip is just a delivery wrapper —
+    // browsers and AV are far happier with a .zip than a bare .exe.
+    const zipPath = join(work, `${fileBase}-portable.zip`);
+    await zipToFile(zipPath, (z) => z.file(exe, { name: `${displayName}.exe` }), 0);
+    return { file: zipPath, name: `${fileBase}-portable.zip` };
+  }
+  const zipPath = join(work, `${fileBase}-${platform}.zip`);
+  await zipToFile(zipPath, (z) => z.directory(built, fileBase), 9);
+  return { file: zipPath, name: `${fileBase}-${platform}.zip` };
+}
+
+// Build a zip on disk (not streamed to a response) so the queue worker can hand
+// the file to a later download request.
+function zipToFile(outPath, addFn, level) {
+  return new Promise((resolve, reject) => {
+    const output = createWriteStream(outPath);
+    const zip = archiver("zip", { zlib: { level } });
+    output.on("close", () => resolve(outPath));
+    output.on("error", reject);
+    zip.on("error", reject);
+    zip.pipe(output);
+    addFn(zip);
+    zip.finalize();
+  });
+}
 
 // Wrap the packaged Electron folder (exe + dlls + .pak) into a single
 // self-contained .exe. electron-builder's `portable` target unpacks to a temp

@@ -175,10 +175,45 @@ $("clear").addEventListener("click", () => {
   iconDataUrl = null; $("iconfile").value = ""; $("clear").hidden = true; autoIcon();
 });
 
+function fail(msg) {
+  status.className = "err"; status.textContent = "Gagal: " + msg; go.disabled = false;
+}
+
+// Poll job status. Short requests, so a proxy timeout can't kill it, and a few
+// transient network errors are tolerated instead of failing the whole build.
+function poll(id) {
+  let misses = 0;
+  const tick = async () => {
+    try {
+      const r = await fetch(`/api/build/${id}`);
+      if (r.status === 404) return fail("Job kedaluwarsa, coba lagi.");
+      const s = await r.json();
+      misses = 0;
+      if (s.status === "queued") {
+        status.className = ""; status.textContent = `Menunggu antrian (posisi ${s.position})…`;
+      } else if (s.status === "building") {
+        status.className = ""; status.textContent = "Building… 1–5 menit. Tab boleh ditinggal.";
+      } else if (s.status === "done") {
+        status.className = "ok"; status.textContent = "Selesai ✓ mengunduh…";
+        const a = document.createElement("a");
+        a.href = `/api/build/${id}/download`; a.download = s.name || "app"; a.click();
+        go.disabled = false;
+        return; // stop polling
+      } else if (s.status === "error") {
+        return fail(s.error || "Build gagal.");
+      }
+    } catch {
+      if (++misses > 5) return fail("Koneksi terputus. Cek jaringan lalu coba lagi.");
+    }
+    setTimeout(tick, 2500);
+  };
+  tick();
+}
+
 f.addEventListener("submit", async (e) => {
   e.preventDefault();
   go.disabled = true; status.className = "";
-  status.textContent = "Building… 1–3 menit (download Electron / gradle). Jangan tutup tab.";
+  status.textContent = "Mengirim permintaan…";
   try {
     const r = await fetch("/api/build", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -188,16 +223,11 @@ f.addEventListener("submit", async (e) => {
         packageName: $("pkg").value,
       }),
     });
-    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
-    const blob = await r.blob();
-    const name = (r.headers.get("Content-Disposition") || "").match(/filename="?([^"]+)"?/)?.[1] || "app";
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob); a.download = name; a.click();
-    status.className = "ok"; status.textContent = "Selesai ✓ file terunduh.";
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || r.statusText);
+    poll(data.id);
   } catch (err) {
-    status.className = "err"; status.textContent = "Gagal: " + err.message;
-  } finally {
-    go.disabled = false;
+    fail(err.message);
   }
 });
 </script>
