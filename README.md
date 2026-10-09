@@ -5,10 +5,10 @@ Bukan bikin browser engine sendiri — cuma bungkus tool yang sudah ada:
 [nativefier](https://github.com/nativefier/nativefier) untuk desktop, WebView + Gradle untuk Android.
 
 ## Preview
-<img src="https://raw.githubusercontent.com/tobz/Web2App/refs/heads/master/preview.png" width="600">
+<img src="https://raw.githubusercontent.com/TobyG74/Web2App/refs/heads/master/preview.png" width="600">
 
 ## Jalankan
-  
+
 ```bash
 npm install
 npm start          # http://localhost:3000
