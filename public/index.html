@@ -6,73 +6,109 @@
 <title>Web2App Converter</title>
 <style>
   :root {
-    color-scheme: light dark;
-    --bg: #0e1116; --card: #171b22; --line: #2a303a; --fg: #e6e9ef; --mut: #9aa4b2;
-    --accent: #6d8bff; --accent2: #9b6dff; --ok: #37d399; --err: #ff6b6b;
-  }
-  @media (prefers-color-scheme: light) {
-    :root { --bg:#f4f6fb; --card:#fff; --line:#e3e8f0; --fg:#1a1d24; --mut:#66707e; }
+    color-scheme: light;
+    --bg: #f4f0e6; --card: #fffdf7; --line: #202020; --fg: #202020; --mut: #50504a;
+    --accent: #ffe253; --ok: #22633c; --err: #a32720;
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0; min-height: 100vh; font-family: system-ui, sans-serif; color: var(--fg);
-    background: radial-gradient(1200px 600px at 80% -10%, #6d8bff22, transparent), var(--bg);
-    display: grid; place-items: center; padding: 2rem 1rem;
+    margin: 0; min-height: 100vh; font-family: Arial, Helvetica, sans-serif; color: var(--fg);
+    background: var(--bg); line-height: 1.5;
+    display: grid; place-items: center; padding: 3rem 1.25rem;
   }
   .card {
-    width: 100%; max-width: 30rem; background: var(--card); border: 1px solid var(--line);
-    border-radius: 1rem; padding: 1.75rem; box-shadow: 0 20px 60px #0004;
+    width: 100%; max-width: 30rem; min-width: 0; background: var(--card); overflow-wrap: anywhere;
+    border: 3px solid var(--line); box-shadow: 10px 10px 0 var(--line);
   }
-  h1 { margin: 0 0 .25rem; font-size: 1.35rem; }
-  .sub { margin: 0 0 1.4rem; color: var(--mut); font-size: .9rem; }
-  label { display: block; font-size: .8rem; color: var(--mut); margin: 0 0 .35rem; }
-  .field { margin-bottom: 1.1rem; }
+  .intro { padding: 1.25rem 1.5rem; background: var(--accent); border-bottom: 3px solid var(--line); }
+  h1 { margin: 0 0 .45rem; font-size: clamp(1.65rem, 5vw, 2rem); font-weight: 900; line-height: 1.1; letter-spacing: -.045em; }
+  .sub { margin: 0; max-width: 30rem; font-size: .95rem; }
+  form { padding: 1.25rem 1.5rem 0; }
+  label, legend { display: block; font-size: .85rem; font-weight: 700; margin: 0 0 .45rem; }
+  .field { margin: 0 0 1rem; min-width: 0; }
+  fieldset.field { padding: 0; border: 0; }
+  legend { padding: 0; }
   input[type=url], input[type=text] {
-    width: 100%; padding: .7rem .8rem; border-radius: .6rem; border: 1px solid var(--line);
-    background: var(--bg); color: var(--fg); font: inherit;
+    width: 100%; min-width: 0; min-height: 44px; padding: .6rem .75rem;
+    border-radius: 0; border: 2px solid var(--line); background: #fff; color: var(--fg); font: inherit;
   }
-  input:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  input::placeholder { color: var(--mut); opacity: 1; }
+  input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid var(--line); outline-offset: 4px; }
   .iconrow { display: flex; align-items: center; gap: .8rem; }
   .preview {
-    width: 56px; height: 56px; border-radius: .7rem; border: 1px solid var(--line);
-    background: var(--bg) center/60% no-repeat; flex: none; display: grid; place-items: center;
-    color: var(--mut); font-size: .65rem; overflow: hidden;
+    width: 56px; height: 56px; border: 2px solid var(--line);
+    background: var(--bg); flex: none; display: grid; place-items: center;
+    color: var(--mut); font-size: .75rem; font-weight: 700; overflow: hidden;
   }
   .preview img { width: 100%; height: 100%; object-fit: contain; }
-  .iconbtns { display: flex; flex-direction: column; gap: .35rem; }
-  .mini { font-size: .75rem; color: var(--mut); }
-  .plats { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+  .iconbtns { display: flex; flex-direction: column; align-items: flex-start; gap: .5rem; min-width: 0; }
+  .mini { font-size: .78rem; color: var(--mut); overflow-wrap: anywhere; }
+  .plats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
   .plat {
-    border: 1px solid var(--line); border-radius: .6rem; padding: .6rem .7rem; cursor: pointer;
-    display: flex; gap: .5rem; align-items: center; font-size: .9rem; background: var(--bg);
+    border: 2px solid var(--line); margin: 0; min-height: 60px; padding: .55rem .7rem; cursor: pointer;
+    display: flex; gap: .65rem; align-items: center; font-size: .95rem; background: #fff;
   }
-  .plat input { accent-color: var(--accent); }
-  .plat:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
-  .plat small { display: block; color: var(--mut); font-size: .7rem; }
+  .plat input, .check input { accent-color: var(--fg); width: 18px; height: 18px; flex: none; }
+  .plat:has(input:checked) { background: var(--accent); box-shadow: 3px 3px 0 var(--line); }
+  .plat:has(input:focus-visible) { outline: 3px solid var(--line); outline-offset: 4px; }
+  .plat small { display: block; color: var(--mut); font-size: .75rem; font-weight: 400; }
+  .plat span { min-width: 0; }
   button.go {
-    width: 100%; margin-top: 1.3rem; padding: .8rem; border: 0; border-radius: .7rem; cursor: pointer;
-    font: inherit; font-weight: 600; color: #fff;
-    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    width: 100%; min-height: 48px; margin-top: .35rem; padding: .65rem 1rem;
+    border: 2px solid var(--line); border-radius: 0; cursor: pointer;
+    font: inherit; font-weight: 800; color: var(--fg); background: var(--accent);
+    box-shadow: 5px 5px 0 var(--line); transition: transform .12s, box-shadow .12s;
   }
-  button.go:disabled { opacity: .55; cursor: wait; }
-  .filebtn { font-size: .78rem; color: var(--accent); background: none; border: 0; cursor: pointer; padding: 0; text-align: left; }
-  #status { margin-top: 1rem; min-height: 1.3rem; font-size: .85rem; }
+  button.go:active:not(:disabled) { transform: translate(5px, 5px); box-shadow: none; }
+  button.go:disabled { background: var(--bg); color: var(--mut); box-shadow: none; cursor: wait; }
+  .filebtn {
+    min-height: 44px; padding: .5rem .75rem; border: 2px solid var(--line); border-radius: 0;
+    font: inherit; font-size: .8rem; font-weight: 700; color: var(--fg); background: #fff;
+    cursor: pointer; text-align: left; overflow-wrap: anywhere;
+  }
+  .filebtn:active { background: var(--accent); }
+  #status { margin: .85rem 1.5rem 0; min-height: 1.5rem; font-size: .85rem; overflow-wrap: anywhere; }
   #status.ok { color: var(--ok); } #status.err { color: var(--err); }
-  .check { display: flex; gap: .55rem; align-items: flex-start; cursor: pointer; font-size: .9rem; color: var(--fg); }
-  .check input { accent-color: var(--accent); margin-top: .15rem; }
-  .check small { display: block; color: var(--mut); font-size: .72rem; margin-top: .15rem; }
-  .credit { margin-top: 1.4rem; padding-top: 1rem; border-top: 1px solid var(--line); text-align: center; font-size: .75rem; color: var(--mut); }
-  .credit a { color: var(--accent); text-decoration: none; }
-  .credit a:hover { text-decoration: underline; }
-  .credit .repo { display: inline-flex; align-items: center; gap: .4rem; margin-bottom: .5rem;
-    padding: .35rem .7rem; border: 1px solid var(--line); border-radius: 2rem; font-size: .78rem; }
-  .credit .repo:hover { border-color: var(--accent); text-decoration: none; }
+  .check { display: flex; gap: .7rem; align-items: flex-start; margin: 0; min-height: 44px; cursor: pointer; font-size: .9rem; }
+  .check input { margin: .15rem 0 0; }
+  .check small { display: block; color: var(--mut); font-size: .78rem; font-weight: 400; margin-top: .25rem; }
+  .credit {
+    margin-top: .85rem; padding: .75rem 1.5rem; border-top: 2px solid var(--line);
+    background: var(--bg); text-align: center; font-size: .78rem; color: var(--mut);
+  }
+  .credit a { display: inline-flex; align-items: center; min-height: 44px; color: var(--fg); text-underline-offset: 3px; }
+  .credit .repo {
+    gap: .5rem; margin-bottom: .35rem; padding: .5rem .8rem; border: 2px solid var(--line);
+    background: #fff; font-weight: 700; text-decoration: none;
+  }
+  @media (hover: hover) {
+    button.go:hover:not(:disabled) { transform: translate(2px, 2px); box-shadow: 3px 3px 0 var(--line); }
+    .filebtn:hover, .credit .repo:hover { background: var(--accent); }
+    .plat:hover { background: var(--bg); }
+    .plat:has(input:checked):hover { background: var(--accent); }
+  }
+  @media (max-width: 480px) {
+    body { padding: 1.25rem .9rem; }
+    .card { box-shadow: 6px 6px 0 var(--line); }
+    .intro { padding: 1.25rem; }
+    form { padding: 1.25rem 1.25rem 0; }
+    #status { margin-inline: 1.25rem; }
+    .credit { padding: .75rem 1.25rem; }
+  }
+  @media (max-width: 360px) {
+    .plats { grid-template-columns: 1fr; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    button.go { transition: none; }
+  }
 </style>
 </head>
 <body>
-  <div class="card">
+  <main class="card">
+    <header class="intro">
     <h1>Web2App Converter</h1>
     <p class="sub">Tempel URL, dapat aplikasi jadi. Nama & icon otomatis dari situs, bisa diganti.</p>
+    </header>
 
     <form id="f">
       <div class="field">
@@ -86,7 +122,7 @@
       </div>
 
       <div class="field">
-        <label>Icon</label>
+        <label for="iconfile">Icon</label>
         <div class="iconrow">
           <div class="preview" id="preview">auto</div>
           <div class="iconbtns">
@@ -104,15 +140,15 @@
         <span class="mini">Kosongkan = com.html2exe.webapp</span>
       </div>
 
-      <div class="field">
-        <label>Platform</label>
+      <fieldset class="field">
+        <legend>Platform</legend>
         <div class="plats">
           <label class="plat"><input type="radio" name="p" value="windows" checked /> <span>Windows<small>.exe (zip)</small></span></label>
           <label class="plat"><input type="radio" name="p" value="linux" /> <span>Linux<small>AppImage/zip</small></span></label>
           <label class="plat"><input type="radio" name="p" value="mac" /> <span>macOS<small>unsigned</small></span></label>
           <label class="plat"><input type="radio" name="p" value="apk" /> <span>Android<small>.apk</small></span></label>
         </div>
-      </div>
+      </fieldset>
 
       <div class="field" id="singleField">
         <label class="check">
@@ -123,7 +159,7 @@
 
       <button class="go" id="go" type="submit">Build & Download</button>
     </form>
-    <div id="status"></div>
+    <div id="status" role="status" aria-live="polite" aria-atomic="true"></div>
     <footer class="credit">
       <a class="repo" href="https://github.com/TobyG74/Web2App" target="_blank" rel="noopener">
         <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
@@ -135,7 +171,7 @@
         <a href="https://instagram.com/ini.tobz" target="_blank" rel="noopener">IG @ini.tobz</a>
       </div>
     </footer>
-  </div>
+  </main>
 
 <script>
 const $ = (id) => document.getElementById(id);

@@ -4,7 +4,8 @@
   "description": "Paste a URL, get a desktop .exe/.app/.AppImage or Android .apk",
   "type": "module",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "pm2": "pm2 start ecosystem.config.js"
   },
   "dependencies": {
     "archiver": "^7.0.1",
