@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 import dns from "node:dns/promises";
 import net from "node:net";
 import pngToIco from "png-to-ico";
-import { parseBuildOptions } from "./build-options.js";
+import { MAX_IMAGE_BYTES, imageDataBuffer, normalizeImage, normalizeImageDataUrl, parseBuildOptions } from './build-options.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -19,8 +19,12 @@ const app = express();
 // rate-limit per real client.
 app.set("trust proxy", true);
 // Allow base64 uploads for both the app icon and the optional splash logo.
-app.use(express.json({ limit: "4mb" }));
-app.use(express.static(join(__dirname, "public")));
+app.use(express.json({ limit: "16mb" }));
+app.use(express.static(join(__dirname, "public"), {
+  setHeaders(res, path) {
+    if (/\.(html|js)$/.test(path)) res.setHeader('Cache-Control', 'no-store');
+  },
+}));
 
 // Build job queue 
 const jobs = new Map();            // id -> job
@@ -93,10 +97,10 @@ function clientIp(req) {
 const RATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 const RATE_MAX = Number(process.env.RATE_MAX || 10); // builds per window per IP
 const hits = new Map(); // ip -> number[] (timestamps)
-function rateLimited(ip) {
+function rateLimited(ip, max = RATE_MAX, windowMs = RATE_WINDOW_MS) {
   const now = Date.now();
-  const arr = (hits.get(ip) || []).filter((t) => now - t < RATE_WINDOW_MS);
-  if (arr.length >= RATE_MAX) {
+  const arr = (hits.get(ip) || []).filter((t) => now - t < windowMs);
+  if (arr.length >= max) {
     hits.set(ip, arr);
     return true;
   }
@@ -229,23 +233,83 @@ async function fetchTitle(url) {
   }
 }
 
-async function resolveIcon(work, dataUrl, siteUrl) {
-  let buf = null;
-  if (typeof dataUrl === "string" && dataUrl.startsWith("data:")) {
-    buf = Buffer.from(dataUrl.split(",")[1] || "", "base64");
-  } else if (siteUrl) {
+async function fetchIconResource(raw, maxBytes, signal, truncate = false) {
+  let url = raw;
+  for (let redirects = 0; redirects <= 3; redirects++) {
+    await assertPublicUrl(url);
+    const response = await fetch(url, {
+      cache: 'no-store',
+      redirect: 'manual', signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]),
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; Web2App/1.0)',
+        'Cache-Control': 'no-cache', Pragma: 'no-cache',
+      },
+    });
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      await response.body?.cancel();
+      url = new URL(response.headers.get('location'), url).href;
+      continue;
+    }
+    if (!response.ok || (!truncate && Number(response.headers.get('content-length')) > maxBytes)) {
+      await response.body?.cancel();
+      throw new Error('Favicon tidak tersedia atau terlalu besar.');
+    }
+    const chunks = [];
+    let size = 0;
+    for await (const chunk of response.body) {
+      if (size + chunk.length > maxBytes) {
+        if (!truncate) throw new Error('Favicon terlalu besar.');
+        chunks.push(chunk.subarray(0, maxBytes - size));
+        break;
+      }
+      size += chunk.length;
+      chunks.push(chunk);
+    }
+    return { url, buffer: Buffer.concat(chunks) };
+  }
+  throw new Error('Terlalu banyak redirect favicon.');
+}
+
+async function siteIcon(siteUrl) {
+  const signal = AbortSignal.timeout(15000);
+  const candidates = [];
+  let pageUrl = siteUrl;
+  try {
+    const page = await fetchIconResource(siteUrl, 512 * 1024, signal, true);
+    pageUrl = page.url;
+    const html = page.buffer.toString('utf8');
+    const attributes = tag => Object.fromEntries([...tag.matchAll(/([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g)]
+      .map(match => [match[1].toLowerCase(), (match[2] ?? match[3] ?? match[4]).replace(/&amp;/gi, '&')]));
+    const base = attributes(html.match(/<base\b[^>]*>/i)?.[0] || '').href;
+    const baseUrl = base ? new URL(base, pageUrl).href : pageUrl;
+    for (const tag of html.match(/<link\b[^>]*>/gi) || []) {
+      const attrs = attributes(tag);
+      if (attrs.href && /(?:^|\s)(?:icon|apple-touch-icon|apple-touch-icon-precomposed)(?:\s|$)/i.test(attrs.rel || '')) {
+        candidates.push(new URL(attrs.href, baseUrl).href);
+        if (candidates.length === 6) break;
+      }
+    }
+  } catch {}
+  candidates.push(new URL('/favicon.ico', pageUrl).href);
+  for (const candidate of new Set(candidates)) {
+    if (signal.aborted) break;
     try {
-      const host = new URL(siteUrl).hostname;
-      const r = await fetch(`https://www.google.com/s2/favicons?sz=256&domain=${encodeURIComponent(host)}`, { signal: AbortSignal.timeout(5000) });
-      buf = Buffer.from(await r.arrayBuffer());
+      const buffer = candidate.startsWith('data:') ? imageDataBuffer(candidate)
+        : (await fetchIconResource(candidate, MAX_IMAGE_BYTES, signal)).buffer;
+      return { buffer: await normalizeImage(buffer), source: 'site' };
     } catch {}
   }
-  if (!buf || !buf.length) return null;
-  // Reject oversized icons (5mb) so a giant data URL can't fill the disk.
-  if (buf.length > 5 * 1024 * 1024) return null;
-  const p = join(work, "icon.png");
-  await writeFile(p, buf);
-  return p;
+  console.warn('[icon] Favicon situs tidak ditemukan, memakai ikon bawaan.');
+  const buffer = await normalizeImage(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect width="256" height="256" rx="48" fill="#ffe253"/><g fill="none" stroke="#202020" stroke-width="10"><circle cx="128" cy="128" r="80"/><ellipse cx="128" cy="128" rx="36" ry="80"/><path d="M48 128h160M62 84h132M62 172h132"/></g></svg>'));
+  return { buffer, source: 'default' };
+}
+
+async function resolveIcon(work, dataUrl, siteUrl) {
+  const buffer = dataUrl != null && dataUrl !== ''
+    ? await normalizeImage(imageDataBuffer(dataUrl)) : (await siteIcon(siteUrl)).buffer;
+  const path = join(work, 'icon.png');
+  await writeFile(path, buffer);
+  return path;
 }
 
 // Windows .exe needs a real .ico. nativefier only converts PNG->ICO when
@@ -257,24 +321,50 @@ async function toIco(work, pngPath) {
     await writeFile(p, await pngToIco(pngPath));
     return p;
   } catch (e) {
-    console.warn("[icon] PNG->ICO gagal, pakai PNG apa adanya:", e.message);
-    return pngPath;
+    console.warn("[icon] PNG->ICO gagal, memakai ikon bawaan:", e.message);
+    return null;
   }
 }
 
-app.post("/api/build", async (req, res) => {
-  // --- auth ---
+function authorize(req, res, next) {
   if (ACCESS_TOKEN) {
     const auth = req.headers["authorization"] || "";
     const bearer = auth.startsWith("Bearer ") ? auth.slice(7) : "";
     const token = req.headers["x-access-token"] || bearer;
     if (token !== ACCESS_TOKEN) return res.status(401).json({ error: "Tidak diizinkan" });
   }
+  next();
+}
+
+app.post('/api/images/normalize', authorize, async (req, res) => {
+  try {
+    res.json({ dataUrl: await normalizeImageDataUrl(req.body?.dataUrl) });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/api/icons/preview', authorize, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (rateLimited(`icon:${clientIp(req)}`, 60, 60000)) {
+    return res.status(429).json({ error: 'Terlalu banyak pratinjau ikon. Coba lagi sebentar.' });
+  }
+  try {
+    const url = await assertPublicUrl(req.body?.url);
+    const icon = await siteIcon(url.href);
+    res.json({ dataUrl: `data:image/png;base64,${icon.buffer.toString('base64')}`, source: icon.source });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post("/api/build", authorize, async (req, res) => {
   // --- rate limit ---
   const ip = clientIp(req);
   if (rateLimited(ip)) return res.status(429).json({ error: "Terlalu banyak permintaan, coba lagi nanti" });
 
-  const { url, platform, name: rawName, iconDataUrl, singleFile } = req.body || {};
+  const { url, platform, name: rawName, singleFile } = req.body || {};
+  let { iconDataUrl } = req.body || {};
 
   if (!["windows", "linux", "mac", "apk"].includes(platform)) {
     return res.status(400).json({ error: "platform tidak dikenal" });
@@ -282,6 +372,8 @@ app.post("/api/build", async (req, res) => {
   let options;
   try {
     options = parseBuildOptions(req.body, platform);
+    if (iconDataUrl != null && iconDataUrl !== '') iconDataUrl = await normalizeImageDataUrl(iconDataUrl);
+    if (options.splash?.imageDataUrl) options.splash.imageDataUrl = await normalizeImageDataUrl(options.splash.imageDataUrl);
   } catch (e) {
     return res.status(400).json({ error: e.message });
   }
@@ -371,9 +463,9 @@ async function runBuild(job) {
         sessionStorage.setItem('web2app:splash', '1');
       } catch {}
       const host = document.createElement('div');
-      host.style.cssText = 'position:fixed;inset:0;z-index:2147483647;';
-      document.body.append(host);
-      Web2AppSplash(host, ${JSON.stringify(splash)}, () => host.remove());
+      host.style.cssText = 'all:initial;position:fixed;inset:0;z-index:2147483647;display:block;';
+      document.documentElement.append(host);
+      Web2AppSplash(host.attachShadow({mode:'open'}), ${JSON.stringify(splash)}, () => host.remove());
     })();`);
     args.push('--inject', injection);
   }
@@ -493,6 +585,11 @@ async function prepareAndroidProject(work, url, displayName, iconPath, options) 
     .replace("__TARGET_URL__", () => androidString(url))
     .replace("__APP_NAME__", () => androidString(displayName));
   await writeFile(strings, xml);
+  await writeFile(join(proj, "app/src/main/res/values/splash-loader.xml"), `<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="splash_loader" formatted="false">${androidString(splash?.loader ?? 'none')}</string>
+</resources>
+`);
   await writeFile(join(proj, "app/src/main/res/values/splash.xml"), `<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <bool name="splash_enabled">${Boolean(splash)}</bool>
@@ -518,7 +615,7 @@ async function prepareAndroidProject(work, url, displayName, iconPath, options) 
   const newDir = join(javaRoot, ...packageName.split("."));
   await mkdir(newDir, { recursive: true });
   await writeFile(join(newDir, "MainActivity.java"), mainActivity);
-  // icon: drop the png into drawable and reference it, else keep Android's default
+  // Both uploads and website favicons arrive here as PNG.
   const manifest = join(proj, "app/src/main/AndroidManifest.xml");
   let iconAttr = "";
   if (iconPath) {
@@ -530,8 +627,7 @@ async function prepareAndroidProject(work, url, displayName, iconPath, options) 
   if (splash?.imageDataUrl) {
     const drawable = join(proj, "app/src/main/res/drawable");
     await mkdir(drawable, { recursive: true });
-    const extension = splash.imageDataUrl.startsWith('data:image/png;') ? 'png' : 'jpg';
-    await writeFile(join(drawable, `splash_logo.${extension}`), Buffer.from(splash.imageDataUrl.split(',')[1], 'base64'));
+    await writeFile(join(drawable, 'splash_logo.png'), await normalizeImage(imageDataBuffer(splash.imageDataUrl)));
   }
   await writeFile(manifest, (await readFile(manifest, "utf8")).replace("__ICON_ATTR__", iconAttr));
   return proj;
@@ -569,9 +665,19 @@ function cleanup(dir) {
   rm(dir, { recursive: true, force: true }).catch(() => {});
 }
 
+app.use((error, req, res, next) => {
+  if (error.type === 'entity.too.large') return res.status(413).json({ error: 'Data terlalu besar. Setiap gambar maksimal 5 MB.' });
+  if (error.type === 'entity.parse.failed') return res.status(400).json({ error: 'Data JSON tidak valid.' });
+  next(error);
+});
+
 const PORT = process.env.PORT || 4444;
-export { app, prepareAndroidProject };
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) app.listen(PORT, () => {
+export { app, prepareAndroidProject, resolveIcon, toIco };
+const serverPath = fileURLToPath(import.meta.url);
+const isDirectRun = process.argv[1] && resolve(process.argv[1]) === serverPath;
+const isPm2Run = process.env.pm_exec_path && resolve(process.env.pm_exec_path) === serverPath;
+
+if (isDirectRun || isPm2Run) app.listen(PORT, () => {
   console.log(`html2exe → http://localhost:${PORT}`);
   if (!ACCESS_TOKEN) console.warn("[warn] ACCESS_TOKEN kosong — endpoint /api/build terbuka. Set ACCESS_TOKEN untuk membatasi akses.");
 });

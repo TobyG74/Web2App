@@ -1,6 +1,83 @@
+import sharp from 'sharp';
+import ico from 'sharp-ico';
+import bmp from 'sharp-bmp';
+
+export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_PIXELS = 16 * 1024 * 1024;
+const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+
+export function imageDataBuffer(dataUrl) {
+  if (typeof dataUrl !== 'string' || dataUrl.length > Math.ceil(MAX_IMAGE_BYTES / 3) * 4 + 100) {
+    throw new Error('Gambar maksimal 5 MB.');
+  }
+  const match = dataUrl.match(/^data:(?:image\/[\w.+-]+|application\/octet-stream)?;base64,([A-Za-z0-9+/]+={0,2})$/);
+  if (!match) throw new Error('Data gambar tidak valid.');
+  const buffer = Buffer.from(match[1], 'base64');
+  if (!buffer.length || buffer.length > MAX_IMAGE_BYTES) throw new Error('Gambar maksimal 5 MB.');
+  return buffer;
+}
+
+function checkDimensions(width, height) {
+  if (width < 1 || height < 1 || width * height > MAX_PIXELS) {
+    throw new Error('Resolusi gambar maksimal 16 megapiksel.');
+  }
+}
+
+function largestIcoImage(buffer, options) {
+  const count = buffer.readUInt16LE(4);
+  if (!count || buffer.length < 6 + count * 16) throw new Error('ICO tidak valid.');
+  let best = null;
+  for (let i = 0; i < count; i++) {
+    const entry = buffer.subarray(6 + i * 16, 22 + i * 16);
+    const size = entry.readUInt32LE(8), offset = entry.readUInt32LE(12);
+    if (offset < 6 + count * 16 || size < 40 || offset + size > buffer.length) continue;
+    const data = buffer.subarray(offset, offset + size);
+    const png = data.subarray(0, 8).equals(PNG_SIGNATURE);
+    const width = png ? data.readUInt32BE(16) : data.readInt32LE(4);
+    const height = png ? data.readUInt32BE(20) : data.readInt32LE(8) / 2;
+    if (width !== (entry[0] || 256) || height !== (entry[1] || 256)) continue;
+    if (!best || width * height > best.area) best = { entry, data, area: width * height };
+  }
+  if (!best) throw new Error('ICO tidak valid.');
+  // Decode only the largest frame, so a many-frame ICO cannot multiply memory use.
+  const single = Buffer.concat([buffer.subarray(0, 6), best.entry, best.data]);
+  single.writeUInt16LE(1, 4);
+  single.writeUInt32LE(22, 18);
+  return ico.sharpsFromIco(single, options)[0];
+}
+
+export async function normalizeImage(buffer) {
+  if (!buffer.length || buffer.length > MAX_IMAGE_BYTES) throw new Error('Gambar maksimal 5 MB.');
+  const options = { limitInputPixels: MAX_PIXELS, failOn: 'error' };
+  try {
+    let image;
+    if (buffer.length >= 6 && buffer.readUInt32LE(0) === 0x00010000) {
+      image = largestIcoImage(buffer, options);
+    } else if (buffer.subarray(0, 2).toString() === 'BM') {
+      if (buffer.length < 54 || buffer.readUInt32LE(14) < 40) throw new Error('BMP tidak valid.');
+      checkDimensions(buffer.readUInt32LE(18), Math.abs(buffer.readInt32LE(22)));
+      const paletteSize = buffer.readUInt32LE(46);
+      if (paletteSize > 256) throw new Error('Palet BMP tidak valid.');
+      image = bmp.sharpFromBmp(buffer, options);
+    } else {
+      image = sharp(buffer, options);
+    }
+    return await image.autoOrient().resize(256, 256, {
+      fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 },
+    }).png().timeout({ seconds: 5 }).toBuffer();
+  } catch {
+    throw new Error('Gambar tidak dapat dibaca atau resolusinya melebihi 16 megapiksel. Gunakan PNG, JPG, WebP, SVG, GIF, BMP, TIFF, AVIF, atau ICO.');
+  }
+}
+
+export async function normalizeImageDataUrl(dataUrl) {
+  return `data:image/png;base64,${(await normalizeImage(imageDataBuffer(dataUrl))).toString('base64')}`;
+}
+
 const PACKAGE_RE = /^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$/;
 const JAVA_KEYWORDS = new Set(('abstract assert boolean break byte case catch char class const continue default do double else enum extends final finally float for goto if implements import instanceof int interface long native new package private protected public return short static strictfp super switch synchronized this throw throws transient try void volatile while true false null').split(' '));
-export const SPLASH_ANIMATIONS = ['none', 'fade', 'zoom', 'slide-up', 'bounce', 'rotate'];
+export const SPLASH_ANIMATIONS = ['none', 'fade', 'zoom', 'slide-up', 'bounce', 'rotate', 'pulse', 'flip'];
+export const SPLASH_LOADERS = ['none', 'spinner', 'dots', 'bars', 'ring'];
 
 function text(value, fallback, max, label) {
   if (value == null || value === '') return fallback;
@@ -36,6 +113,8 @@ export function parseBuildOptions(body, platform) {
   const splash = body.splash;
   const animation = splash.animation ?? 'fade';
   if (!SPLASH_ANIMATIONS.includes(animation)) throw new Error('Animasi splash tidak dikenal.');
+  const loader = splash.loader ?? 'none';
+  if (!SPLASH_LOADERS.includes(loader)) throw new Error('Animasi loading splash tidak dikenal.');
   const duration = splash.duration ?? 2000;
   if (typeof duration !== 'number' || !Number.isInteger(duration) || duration < 500 || duration > 5000) {
     throw new Error('Durasi splash harus antara 500 dan 5000 milidetik.');
@@ -55,18 +134,10 @@ export function parseBuildOptions(body, platform) {
   }
   let imageDataUrl = splash.imageDataUrl ?? null;
   if (imageDataUrl !== null) {
-    if (typeof imageDataUrl !== 'string' || !/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/.test(imageDataUrl)) {
-      throw new Error('Logo splash harus berupa gambar PNG atau JPEG.');
-    }
-    const buffer = Buffer.from(imageDataUrl.split(',')[1], 'base64');
-    const png = buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
-    const jpeg = buffer[0] === 255 && buffer[1] === 216 && buffer[2] === 255;
-    if (buffer.length > 1024 * 1024 || (imageDataUrl.startsWith('data:image/png;') ? !png : !jpeg)) {
-      throw new Error('Logo splash tidak valid atau lebih besar dari 1 MB.');
-    }
+    imageDataBuffer(imageDataUrl);
   }
   options.splash = {
-    animation, duration, background, foreground, imageDataUrl,
+    animation, loader, duration, background, foreground, imageDataUrl,
     title: text(splash.title, '', 60, 'Judul splash'),
     subtitle: text(splash.subtitle, '', 100, 'Subjudul splash'),
   };

@@ -2,7 +2,12 @@ package __PACKAGE_NAME__;
 
 import android.Manifest;
 import android.animation.AnimatorSet;
+import android.animation.Animator;
 import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.drawable.GradientDrawable;
 import android.app.Activity;
 import android.app.DownloadManager;
 import android.content.Context;
@@ -17,6 +22,7 @@ import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
 import android.view.animation.DecelerateInterpolator;
+import android.view.animation.LinearInterpolator;
 import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
 import android.webkit.URLUtil;
@@ -29,6 +35,8 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.ScrollView;
+import java.util.ArrayList;
 
 public class MainActivity extends Activity {
     private WebView web;
@@ -37,6 +45,10 @@ public class MainActivity extends Activity {
     private LinearLayout splashContent;
     private Runnable dismissSplash;
     private AnimatorSet splashAnimation;
+    private AnimatorSet splashLoops;
+    private FrameLayout logoTile;
+    private LoadingIndicator loadingIndicator;
+    private boolean splashStarted;
 
     // WebView renders none of these, so navigating to one just shows a blank
     // page. Hand them to DownloadManager instead.
@@ -146,21 +158,41 @@ public class MainActivity extends Activity {
         splashContent = new LinearLayout(this);
         splashContent.setOrientation(LinearLayout.VERTICAL);
         splashContent.setGravity(Gravity.CENTER);
-        FrameLayout.LayoutParams contentParams = new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER);
-        splash.addView(splashContent, contentParams);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.addView(splashContent, new ScrollView.LayoutParams(-1, -2));
+        splash.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
+        int foreground = getResources().getColor(R.color.splash_foreground);
+        logoTile = new FrameLayout(this);
+        GradientDrawable tileBackground = new GradientDrawable();
+        tileBackground.setColor((foreground & 0x00ffffff) | 0x0d000000);
+        tileBackground.setCornerRadius(dp(28));
+        tileBackground.setStroke(dp(1), (foreground & 0x00ffffff) | 0x33000000);
+        logoTile.setBackground(tileBackground);
+        logoTile.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        LinearLayout.LayoutParams tileParams = new LinearLayout.LayoutParams(dp(104), dp(104));
+        tileParams.bottomMargin = dp(24);
+        splashContent.addView(logoTile, tileParams);
         int logo = getResources().getIdentifier("splash_logo", "drawable", getPackageName());
         if (logo == 0) logo = getApplicationInfo().icon;
         if (logo != 0) {
             ImageView image = new ImageView(this);
             image.setImageResource(logo);
             image.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            LinearLayout.LayoutParams imageParams = new LinearLayout.LayoutParams(dp(80), dp(80));
-            imageParams.bottomMargin = dp(20);
-            splashContent.addView(image, imageParams);
+            logoTile.addView(image, new FrameLayout.LayoutParams(dp(72), dp(72), Gravity.CENTER));
+        } else {
+            TextView initial = new TextView(this);
+            String name = getString(R.string.splash_title);
+            initial.setText(name.isEmpty() ? "A" : name.substring(0, name.offsetByCodePoints(0, 1)).toUpperCase());
+            initial.setTextSize(36);
+            initial.setTextColor(foreground);
+            initial.setGravity(Gravity.CENTER);
+            initial.setTypeface(null, android.graphics.Typeface.BOLD);
+            logoTile.addView(initial, new FrameLayout.LayoutParams(-1, -1));
         }
         TextView title = new TextView(this);
         title.setText(R.string.splash_title);
-        title.setTextSize(24);
+        title.setTextSize(28);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         title.setGravity(Gravity.CENTER);
         title.setTextColor(getResources().getColor(R.color.splash_foreground));
@@ -176,31 +208,59 @@ public class MainActivity extends Activity {
             params.topMargin = dp(12);
             splashContent.addView(subtitle, params);
         }
-        root.addView(splash, new FrameLayout.LayoutParams(-1, -1));
-        if (Build.VERSION.SDK_INT >= 31) {
-            getSplashScreen().setOnExitAnimationListener(systemSplash -> {
-                systemSplash.remove();
-                startSplash(root);
-            });
-        } else {
-            splash.post(() -> startSplash(root));
+        if (!"none".equals(getString(R.string.splash_loader))) {
+            loadingIndicator = new LoadingIndicator(this);
+            LinearLayout.LayoutParams loaderParams = new LinearLayout.LayoutParams(dp(72), dp(28));
+            loaderParams.topMargin = dp(28);
+            splashContent.addView(loadingIndicator, loaderParams);
+            TextView caption = new TextView(this);
+            caption.setText("Menyiapkan aplikasi");
+            caption.setTextSize(12);
+            caption.setTextColor(foreground);
+            caption.setGravity(Gravity.CENTER);
+            LinearLayout.LayoutParams captionParams = new LinearLayout.LayoutParams(-1, -2);
+            captionParams.topMargin = dp(10);
+            splashContent.addView(caption, captionParams);
         }
+        root.addView(splash, new FrameLayout.LayoutParams(-1, -1));
+        dismissSplash = () -> {
+            if (splashLoops != null) splashLoops.cancel();
+            if (splashAnimation != null) splashAnimation.cancel();
+            root.removeView(splash);
+        };
+        // Close even if the activity never receives focus or a system splash callback.
+        splash.postDelayed(dismissSplash, 10000);
+        splash.post(() -> { if (hasWindowFocus()) startSplash(); });
     }
 
-    private void startSplash(FrameLayout root) {
-        if (isFinishing() || isDestroyed()) return;
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) startSplash();
+    }
+
+    private void startSplash() {
+        if (splashStarted || splash == null || splash.getParent() == null || isFinishing() || isDestroyed()) return;
+        splashStarted = true;
         String animation = getString(R.string.splash_animation);
         int duration = getResources().getInteger(R.integer.splash_duration);
-        boolean animate = !"none".equals(animation)
-                && Settings.Global.getFloat(getContentResolver(), Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0;
+        splash.removeCallbacks(dismissSplash);
+        splash.postDelayed(dismissSplash, duration);
+        boolean motion = Settings.Global.getFloat(getContentResolver(), Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0;
+        boolean animate = !"none".equals(animation) && motion;
         if (animate) {
             splashAnimation = new AnimatorSet();
             ObjectAnimator fade = ObjectAnimator.ofFloat(splashContent, View.ALPHA, 0f, 1f);
             switch (animation) {
+                case "pulse":
                 case "zoom":
                     splashAnimation.playTogether(fade,
                             ObjectAnimator.ofFloat(splashContent, View.SCALE_X, .75f, 1f),
                             ObjectAnimator.ofFloat(splashContent, View.SCALE_Y, .75f, 1f));
+                    break;
+                case "flip":
+                    splashAnimation.playTogether(fade,
+                            ObjectAnimator.ofFloat(splashContent, View.ROTATION_X, -45f, 0f));
                     break;
                 case "slide-up":
                     splashAnimation.playTogether(fade,
@@ -223,20 +283,82 @@ public class MainActivity extends Activity {
             splashAnimation.setInterpolator(new DecelerateInterpolator());
             splashAnimation.start();
         }
-        dismissSplash = () -> {
-            if (animate) splash.animate().alpha(0f).setDuration(200).withEndAction(() -> root.removeView(splash));
-            else root.removeView(splash);
-        };
-        splash.postDelayed(dismissSplash, duration);
+        if (motion) {
+            ArrayList<Animator> loops = new ArrayList<>();
+            if (loadingIndicator != null) {
+                ValueAnimator loaderAnimation = ValueAnimator.ofFloat(0f, 1f);
+                loaderAnimation.setDuration(1200);
+                loaderAnimation.setRepeatCount(ValueAnimator.INFINITE);
+                loaderAnimation.setInterpolator(new LinearInterpolator());
+                loaderAnimation.addUpdateListener(value -> {
+                    loadingIndicator.phase = (float) value.getAnimatedValue();
+                    loadingIndicator.invalidate();
+                });
+                loops.add(loaderAnimation);
+            }
+            if ("pulse".equals(animation)) {
+                for (String scale : new String[]{"scaleX", "scaleY"}) {
+                    ObjectAnimator pulse = ObjectAnimator.ofFloat(logoTile, scale, 1f, 1.07f, 1f);
+                    pulse.setDuration(1400);
+                    pulse.setRepeatCount(ValueAnimator.INFINITE);
+                    loops.add(pulse);
+                }
+            }
+            splashLoops = new AnimatorSet();
+            splashLoops.playTogether(loops);
+            splashLoops.start();
+        }
     }
 
     @Override
     protected void onDestroy() {
         if (splash != null && dismissSplash != null) splash.removeCallbacks(dismissSplash);
         if (splashAnimation != null) splashAnimation.cancel();
+        if (splashLoops != null) splashLoops.cancel();
         if (splash != null) splash.animate().cancel();
         if (web != null) web.destroy();
         super.onDestroy();
+    }
+
+    private class LoadingIndicator extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final String style = getString(R.string.splash_loader);
+        private float phase = .25f;
+
+        LoadingIndicator(Context context) {
+            super(context);
+            paint.setColor(getResources().getColor(R.color.splash_foreground));
+            setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            float x = getWidth() / 2f, y = getHeight() / 2f;
+            if ("dots".equals(style) || "bars".equals(style)) {
+                paint.setStyle(Paint.Style.FILL);
+                for (int i = 0; i < 3; i++) {
+                    float wave = (float) Math.max(0, Math.sin(phase * Math.PI * 2 - i * .8));
+                    if ("dots".equals(style)) {
+                        canvas.drawCircle(x + (i - 1) * dp(14), y - dp(6) * wave, dp(3), paint);
+                    } else {
+                        float height = dp(8) + dp(14) * wave, center = x + (i - 1) * dp(10);
+                        canvas.drawRoundRect(center - dp(2), y - height / 2, center + dp(2), y + height / 2, dp(2), dp(2), paint);
+                    }
+                }
+            } else {
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(dp(2));
+                paint.setStrokeCap(Paint.Cap.ROUND);
+                if ("spinner".equals(style)) {
+                    canvas.drawArc(x - dp(10), y - dp(10), x + dp(10), y + dp(10), phase * 360, 270, false, paint);
+                } else {
+                    float wave = (float) (.5 - .5 * Math.cos(phase * Math.PI * 2));
+                    paint.setAlpha((int) (115 + 140 * wave));
+                    canvas.drawCircle(x, y, dp(8) + dp(4) * wave, paint);
+                }
+            }
+        }
     }
 
     private boolean looksLikeFile(Uri uri) {

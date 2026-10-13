@@ -28,12 +28,12 @@
   .field { margin: 0 0 1rem; min-width: 0; }
   fieldset.field { padding: 0; border: 0; }
   legend { padding: 0; }
-  input[type=url], input[type=text], input[type=number], select {
+  input[type=url], input[type=text], input[type=number] {
     width: 100%; min-width: 0; min-height: 44px; padding: .6rem .75rem;
     border-radius: 0; border: 2px solid var(--line); background: #fff; color: var(--fg); font: inherit;
   }
   input::placeholder { color: var(--mut); opacity: 1; }
-  input:focus-visible, select:focus-visible, summary:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid var(--line); outline-offset: 4px; }
+  input:focus-visible, summary:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid var(--line); outline-offset: 4px; }
   .iconrow { display: flex; align-items: center; gap: .8rem; }
   .preview {
     width: 56px; height: 56px; border: 2px solid var(--line);
@@ -90,8 +90,28 @@
   input[type=color] { display: block; width: 100%; height: 44px; padding: .25rem; border: 2px solid var(--line); border-radius: 0; background: #fff; cursor: pointer; }
   #splashFields { margin: .85rem 0 0; padding: 0; border: 0; min-width: 0; }
   #splashFields:disabled { opacity: .65; }
-  #splashPreview { position: relative; display: grid; place-items: center; min-height: 260px; padding: .75rem; margin: .75rem 0; border: 2px solid var(--line); background: var(--bg); text-align: center; }
+  #splashPreview { position: relative; display: grid; place-items: center; min-height: 380px; padding: .75rem; margin: .75rem 0; border: 2px solid var(--line); border-radius: 12px; background: var(--bg); text-align: center; }
   .filebtn:disabled { cursor: default; background: var(--bg); }
+  [hidden] { display: none !important; }
+  .form-step { margin: 0; padding: 0; border: 0; min-width: 0; }
+  .steps { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; margin: 0 0 1.25rem; padding: 0; list-style: none; font-size: .78rem; }
+  .steps li { padding: .5rem 0; border-bottom: 3px solid var(--line); color: var(--mut); }
+  .steps li[aria-current=step] { color: var(--fg); font-weight: 800; border-color: var(--fg); background: var(--accent); padding-left: .5rem; }
+  .step-title { margin: 0 0 .35rem; font-size: 1.1rem; }
+  .step-intro { margin: 0 0 1.15rem; font-size: .82rem; color: var(--mut); }
+  .step-actions { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .8rem; align-items: stretch; }
+  .step-actions button.go { margin: 0; }
+  .choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }
+  .choice {
+    display: flex; align-items: center; gap: .65rem; min-width: 0; min-height: 64px; padding: .6rem;
+    border: 2px solid var(--line); border-radius: 0; background: #fff; color: var(--fg);
+    text-align: left; font: inherit; font-size: .8rem; font-weight: 700; cursor: pointer;
+  }
+  .choice small { display: block; margin-top: .15rem; color: var(--mut); font-size: .7rem; font-weight: 400; }
+  .choice[aria-pressed=true] { background: var(--accent); box-shadow: 2px 2px 0 var(--line); }
+  .motion-mark { flex: none; display: grid; place-items: center; width: 24px; height: 24px; font-size: 1rem; border: 2px solid currentColor; border-radius: 4px; }
+  .loader-mark { width: 24px; flex: none; text-align: center; font-size: 1rem; letter-spacing: -.1em; }
+  #animationLabel, #loaderLabel { display: block; font-size: .85rem; font-weight: 700; margin-bottom: .45rem; }
   @media (hover: hover) {
     button.go:hover:not(:disabled) { transform: translate(2px, 2px); box-shadow: 3px 3px 0 var(--line); }
     .filebtn:hover, .credit .repo:hover { background: var(--accent); }
@@ -107,7 +127,8 @@
     .credit { padding: .75rem 1.25rem; }
   }
   @media (max-width: 360px) {
-    .plats, .setting-grid { grid-template-columns: 1fr; }
+    .plats, .setting-grid, .choices { grid-template-columns: 1fr; }
+    .step-actions { grid-template-columns: 1fr; }
   }
   @media (prefers-reduced-motion: reduce) {
     button.go { transition: none; }
@@ -121,7 +142,14 @@
     <p class="sub">Tempel URL, dapat aplikasi jadi. Nama & icon otomatis dari situs, bisa diganti.</p>
     </header>
 
-    <form id="f">
+    <form id="f" novalidate>
+      <ol class="steps" aria-label="Langkah konversi">
+        <li id="stepOneLabel" aria-current="step">01 · Website & platform</li>
+        <li id="stepTwoLabel">02 · Kustomisasi</li>
+      </ol>
+      <fieldset class="form-step" id="stepOne">
+      <h2 class="step-title" id="stepOneTitle" tabindex="-1">Mulai dari website kamu</h2>
+      <p class="step-intro">Masukkan URL dan pilih platform aplikasi.</p>
       <div class="field">
         <label for="url">URL website</label>
         <input id="url" type="url" placeholder="https://situskamu.com" required />
@@ -130,19 +158,6 @@
       <div class="field">
         <label for="name">Nama aplikasi</label>
         <input id="name" type="text" placeholder="otomatis dari judul situs" />
-      </div>
-
-      <div class="field">
-        <label for="iconfile">Icon</label>
-        <div class="iconrow">
-          <div class="preview" id="preview">auto</div>
-          <div class="iconbtns">
-            <button type="button" class="filebtn" id="pick">Pilih file icon…</button>
-            <button type="button" class="filebtn" id="clear" hidden>Pakai icon situs (auto)</button>
-            <span class="mini">Kosongkan = favicon situs</span>
-          </div>
-          <input id="iconfile" type="file" accept="image/*" hidden />
-        </div>
       </div>
 
       <fieldset class="field">
@@ -155,7 +170,32 @@
         </div>
       </fieldset>
 
-      <details class="options" id="appOptions">
+      <div class="field" id="singleField">
+        <label class="check">
+          <input id="single" type="checkbox" checked />
+          <span>Satu file .exe saja<small>Bundel semua .dll/.pak jadi 1 .exe portable (dikirim dalam zip). Build lebih lama.</small></span>
+        </label>
+      </div>
+      <button class="go" id="next" type="button">Next · Kustomisasi</button>
+      </fieldset>
+
+      <fieldset class="form-step" id="stepTwo" hidden disabled>
+      <h2 class="step-title" id="stepTwoTitle" tabindex="-1">Buat jadi aplikasi kamu</h2>
+      <p class="step-intro">Atur logo, versi, dan splash. Semua pengaturan ini opsional.</p>
+      <div class="field">
+        <label for="iconfile">Logo aplikasi</label>
+        <div class="iconrow">
+          <div class="preview" id="preview">auto</div>
+          <div class="iconbtns">
+            <button type="button" class="filebtn" id="pick">Pilih logo aplikasi…</button>
+            <button type="button" class="filebtn" id="clear" hidden>Pakai icon situs (auto)</button>
+            <span class="mini" id="iconHint" aria-live="polite">Kosongkan = favicon situs. Gambar maksimal 5 MB, otomatis menjadi PNG.</span>
+          </div>
+          <input id="iconfile" type="file" accept="image/*,.ico,.bmp,.tif,.tiff,.avif" hidden />
+        </div>
+      </div>
+
+      <details class="options" id="appOptions" open>
         <summary>Versi & identitas aplikasi</summary>
         <div class="optionbody">
           <div class="field">
@@ -193,29 +233,43 @@
               <label for="splashSubtitle">Subjudul (opsional)</label>
               <input id="splashSubtitle" type="text" maxlength="100" placeholder="Contoh: Selamat datang" />
             </div>
-            <div class="setting-grid">
-              <div class="field">
-                <label for="splashAnimation">Animasi</label>
-                <select id="splashAnimation">
-                  <option value="none">Tanpa animasi</option>
-                  <option value="fade" selected>Fade</option>
-                  <option value="zoom">Zoom</option>
-                  <option value="slide-up">Slide up</option>
-                  <option value="bounce">Bounce</option>
-                  <option value="rotate">Rotate</option>
-                </select>
+            <div class="field">
+              <span id="animationLabel">Animasi masuk</span>
+              <input id="splashAnimation" type="hidden" value="fade" />
+              <div class="choices" id="animationChoices" role="group" aria-labelledby="animationLabel">
+                <button class="choice" type="button" data-animation="none" aria-pressed="false"><span class="motion-mark" aria-hidden="true">−</span><span>Tanpa animasi<small>Tampil langsung</small></span></button>
+                <button class="choice" type="button" data-animation="fade" aria-pressed="true"><span class="motion-mark" aria-hidden="true">◐</span><span>Fade<small>Muncul perlahan</small></span></button>
+                <button class="choice" type="button" data-animation="zoom" aria-pressed="false"><span class="motion-mark" aria-hidden="true">+</span><span>Zoom<small>Membesar halus</small></span></button>
+                <button class="choice" type="button" data-animation="slide-up" aria-pressed="false"><span class="motion-mark" aria-hidden="true">↑</span><span>Slide up<small>Naik dari bawah</small></span></button>
+                <button class="choice" type="button" data-animation="bounce" aria-pressed="false"><span class="motion-mark" aria-hidden="true">↕</span><span>Bounce<small>Pantulan ringan</small></span></button>
+                <button class="choice" type="button" data-animation="rotate" aria-pressed="false"><span class="motion-mark" aria-hidden="true">↻</span><span>Rotate<small>Putaran lembut</small></span></button>
+                <button class="choice" type="button" data-animation="pulse" aria-pressed="false"><span class="motion-mark" aria-hidden="true">◎</span><span>Pulse<small>Logo berdenyut</small></span></button>
+                <button class="choice" type="button" data-animation="flip" aria-pressed="false"><span class="motion-mark" aria-hidden="true">▱</span><span>Flip<small>Transisi perspektif</small></span></button>
               </div>
+            </div>
+            <div class="field">
+              <span id="loaderLabel">Animasi loading</span>
+              <input id="splashLoader" type="hidden" value="dots" />
+              <div class="choices" id="loaderChoices" role="group" aria-labelledby="loaderLabel">
+                <button class="choice" type="button" data-loader="none" aria-pressed="false"><span class="loader-mark" aria-hidden="true">−</span><span>Tanpa loading</span></button>
+                <button class="choice" type="button" data-loader="spinner" aria-pressed="false"><span class="loader-mark" aria-hidden="true">◔</span><span>Spinner<small>Lingkaran berputar</small></span></button>
+                <button class="choice" type="button" data-loader="dots" aria-pressed="true"><span class="loader-mark" aria-hidden="true">•••</span><span>Dots<small>Tiga titik berirama</small></span></button>
+                <button class="choice" type="button" data-loader="bars" aria-pressed="false"><span class="loader-mark" aria-hidden="true">▂▆▃</span><span>Bars<small>Gelombang naik turun</small></span></button>
+                <button class="choice" type="button" data-loader="ring" aria-pressed="false"><span class="loader-mark" aria-hidden="true">◎</span><span>Pulse ring<small>Lingkaran berdenyut</small></span></button>
+              </div>
+            </div>
+            <div class="setting-grid">
               <div class="field">
                 <label for="splashDuration">Durasi (ms)</label>
                 <input id="splashDuration" type="number" min="500" max="5000" step="100" value="2000" required />
               </div>
               <div class="field">
                 <label for="splashBackground">Warna latar</label>
-                <input id="splashBackground" type="color" value="#ffe253" />
+                <input id="splashBackground" type="color" value="#0f172a" />
               </div>
               <div class="field">
                 <label for="splashForeground">Warna teks</label>
-                <input id="splashForeground" type="color" value="#202020" />
+                <input id="splashForeground" type="color" value="#f8fafc" />
               </div>
             </div>
             <div class="field">
@@ -223,12 +277,13 @@
               <div class="iconbtns">
                 <button type="button" class="filebtn" id="splashPick">Pilih logo splash…</button>
                 <button type="button" class="filebtn" id="splashClear" hidden>Pakai icon aplikasi</button>
-                <span class="mini" id="splashImageHint">PNG/JPEG, maksimal 1 MB. Kosongkan untuk memakai icon aplikasi.</span>
+                <span class="mini" id="splashImageHint" aria-live="polite">Gambar maksimal 5 MB, otomatis menjadi PNG. Kosongkan untuk memakai icon aplikasi.</span>
               </div>
-              <input id="splashImage" type="file" accept="image/png,image/jpeg" hidden />
+              <input id="splashImage" type="file" accept="image/*,.ico,.bmp,.tif,.tiff,.avif" hidden />
             </div>
             <p class="mini" id="splashContrast" aria-live="polite"></p>
             <label>Pratinjau splash</label>
+            <p class="mini" id="splashMotionHint" hidden>Pengaturan perangkat membatasi animasi. Pratinjau ditampilkan tanpa gerakan.</p>
             <div id="splashPreview"><span class="mini">Aktifkan splash untuk melihat pratinjau.</span></div>
             <button type="button" class="filebtn" id="splashReplay">Putar ulang pratinjau</button>
           </fieldset>
@@ -236,14 +291,11 @@
         </div>
       </details>
 
-      <div class="field" id="singleField">
-        <label class="check">
-          <input id="single" type="checkbox" checked />
-          <span>Satu file .exe saja<small>Bundel semua .dll/.pak jadi 1 .exe portable (dikirim dalam zip). Build lebih lama.</small></span>
-        </label>
+      <div class="step-actions">
+        <button class="filebtn" id="back" type="button">Kembali</button>
+        <button class="go" id="go" type="submit">Build & Download</button>
       </div>
-
-      <button class="go" id="go" type="submit">Build & Download</button>
+      </fieldset>
     </form>
     <div id="status" role="status" aria-live="polite" aria-atomic="true"></div>
     <footer class="credit">
@@ -264,8 +316,33 @@
 const $ = (id) => document.getElementById(id);
 const f = $("f"), status = $("status"), go = $("go"), preview = $("preview");
 let iconDataUrl = null;
+let iconUploadId = 0, iconLoading = false;
+let autoIconDataUrl = null, autoIconTimer, autoIconRequest;
+let autoIconId = 0;
 let splashImageDataUrl = null;
+let splashUploadId = 0, splashImageLoading = false;
 let stopSplashPreview = null;
+
+function showStep(second) {
+  $("stepOne").hidden = second;
+  $("stepOne").disabled = second;
+  $("stepTwo").hidden = !second;
+  $("stepTwo").disabled = !second;
+  $(second ? "stepTwoLabel" : "stepOneLabel").setAttribute("aria-current", "step");
+  $(second ? "stepOneLabel" : "stepTwoLabel").removeAttribute("aria-current");
+  stopSplashPreview?.();
+  if (second) updateSplashPreview();
+  $(second ? "stepTwoTitle" : "stepOneTitle").focus({ preventScroll: true });
+  document.querySelector('main').scrollIntoView({ block: 'start' });
+}
+
+$("next").addEventListener("click", () => { if (f.reportValidity()) showStep(true); });
+$("back").addEventListener("click", () => showStep(false));
+$("stepOne").addEventListener("keydown", e => {
+  if (e.key === "Enter" && e.target.matches('input[type=url], input[type=text]')) {
+    e.preventDefault(); $("next").click();
+  }
+});
 
 function updatePkgVisibility() {
   const android = f.p.value === "apk";
@@ -281,39 +358,103 @@ function updatePkgVisibility() {
 f.querySelectorAll('input[name="p"]').forEach((r) => r.addEventListener("change", updatePkgVisibility));
 updatePkgVisibility();
 
-// live favicon preview from the typed URL (default icon)
 function autoIcon() {
+  const requestId = ++autoIconId;
+  clearTimeout(autoIconTimer);
+  autoIconRequest?.abort();
+  autoIconDataUrl = null;
   if (iconDataUrl) return;
+  const url = $("url").value;
   try {
-    const host = new URL($("url").value).hostname;
-    preview.innerHTML = `<img src="https://www.google.com/s2/favicons?sz=128&domain=${host}" alt="" />`;
-  } catch { preview.innerHTML = "auto"; }
+    if (!['http:', 'https:'].includes(new URL(url).protocol)) throw new Error();
+  } catch { preview.textContent = 'auto'; return; }
+  preview.textContent = 'Memuat…';
+  autoIconTimer = setTimeout(async () => {
+    if (requestId !== autoIconId || iconDataUrl || iconLoading) return;
+    autoIconRequest = new AbortController();
+    try {
+      const response = await fetch('/api/icons/preview', {
+        method: 'POST', cache: 'no-store', signal: autoIconRequest.signal,
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }),
+      });
+      const result = await response.json();
+      if (requestId !== autoIconId || iconDataUrl || iconLoading) return;
+      if (!response.ok) throw new Error();
+      autoIconDataUrl = result.dataUrl;
+      preview.innerHTML = `<img src="${autoIconDataUrl}" alt="" />`;
+      $("iconHint").textContent = result.source === 'default'
+        ? 'Favicon tidak tersedia. Ikon bawaan akan dipakai.' : 'Favicon situs (otomatis). Build mengambil ulang ikon dari situs.';
+      updateSplashPreview();
+    } catch {
+      if (requestId !== autoIconId || iconDataUrl || iconLoading) return;
+      preview.textContent = 'auto';
+      $("iconHint").textContent = 'Ikon situs akan dicoba lagi saat build.';
+    }
+  }, 450);
 }
-$("url").addEventListener("input", autoIcon);
+$("url").addEventListener("input", () => { autoIcon(); updateSplashPreview(); });
+
+function clearIcon(clearFile = true) {
+  iconUploadId++; iconLoading = false; iconDataUrl = null;
+  if (clearFile) $("iconfile").value = '';
+  $("clear").hidden = true;
+  $("iconHint").textContent = 'Kosongkan = favicon situs. Gambar maksimal 5 MB, otomatis menjadi PNG.';
+  autoIcon(); updateSplashPreview();
+}
 
 $("pick").addEventListener("click", () => $("iconfile").click());
-$("iconfile").addEventListener("change", (e) => {
+async function convertImage(file) {
+  if (file.size > 5 * 1024 * 1024) throw new Error('Pilih gambar berukuran maksimal 5 MB.');
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Gambar gagal dibaca. Pilih file lagi.'));
+    reader.readAsDataURL(file);
+  });
+  const response = await fetch('/api/images/normalize', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dataUrl }),
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || 'Gambar gagal dikonversi.');
+  return result.dataUrl;
+}
+
+$("iconfile").addEventListener("change", async (e) => {
   const file = e.target.files[0];
+  clearIcon(false);
+  const uploadId = iconUploadId;
   if (!file) return;
-  const rd = new FileReader();
-  rd.onload = () => {
-    iconDataUrl = rd.result;
+  iconLoading = true;
+  $("clear").hidden = false;
+  $("iconHint").textContent = 'Mengonversi logo menjadi PNG…';
+  try {
+    const converted = await convertImage(file);
+    if (uploadId !== iconUploadId) return;
+    iconDataUrl = converted;
     preview.innerHTML = `<img src="${iconDataUrl}" alt="" />`;
+    $("iconHint").textContent = `${file.name} · PNG siap dipakai`;
     $("clear").hidden = false;
-  };
-  rd.readAsDataURL(file);
+    updateSplashPreview();
+  } catch (error) {
+    if (uploadId !== iconUploadId) return;
+    clearIcon();
+    $("iconHint").textContent = error.message;
+    fail(error.message);
+  } finally {
+    if (uploadId === iconUploadId) iconLoading = false;
+  }
 });
-$("clear").addEventListener("click", () => {
-  iconDataUrl = null; $("iconfile").value = ""; $("clear").hidden = true; autoIcon();
-});
+$("clear").addEventListener("click", () => clearIcon());
 
 function splashSettings() {
   return {
     enabled: $("splashEnabled").checked,
     title: $("splashTitle").value.trim(), subtitle: $("splashSubtitle").value.trim(),
     animation: $("splashAnimation").value, duration: Number($("splashDuration").value),
+    loader: $("splashLoader").value,
     background: $("splashBackground").value, foreground: $("splashForeground").value,
-    imageDataUrl: splashImageDataUrl,
+    imageDataUrl: $("splashImage").files.length ? splashImageDataUrl : null,
   };
 }
 
@@ -340,42 +481,62 @@ function updateSplashPreview() {
     return;
   }
   settings.title ||= $("name").value.trim() || "Nama aplikasi";
-  settings.imageDataUrl ||= iconDataUrl || preview.querySelector('img')?.src;
+  $("splashMotionHint").hidden = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+  settings.imageDataUrl ||= iconDataUrl || autoIconDataUrl;
   stopSplashPreview = Web2AppSplash($("splashPreview"), settings, () => {
     $("splashPreview").textContent = "Pratinjau selesai. Putar ulang untuk melihat animasi.";
   });
 }
 
 $("splashEnabled").addEventListener("change", updateSplashPreview);
+function chooseSplashOption(e) {
+  const button = e.target.closest('button[data-animation], button[data-loader]');
+  if (!button) return;
+  const animation = button.dataset.animation;
+  $(animation ? "splashAnimation" : "splashLoader").value = animation || button.dataset.loader;
+  button.parentElement.querySelectorAll('button').forEach(choice => choice.setAttribute('aria-pressed', String(choice === button)));
+  updateSplashPreview();
+}
+$("animationChoices").addEventListener("click", chooseSplashOption);
+$("loaderChoices").addEventListener("click", chooseSplashOption);
 $("splashFields").addEventListener("input", updateSplashPreview);
 $("splashReplay").addEventListener("click", updateSplashPreview);
 $("name").addEventListener("input", updateSplashPreview);
 $("splashPick").addEventListener("click", () => $("splashImage").click());
-$("splashImage").addEventListener("change", e => {
-  const file = e.target.files[0];
-  if (!file) return;
-  if (!["image/png", "image/jpeg"].includes(file.type) || file.size > 1024 * 1024) {
-    $("splashImage").value = "";
-    $("splashImageHint").textContent = "Pilih PNG/JPEG dengan ukuran maksimal 1 MB.";
-    return;
-  }
-  const reader = new FileReader();
-  reader.onerror = () => { $("splashImageHint").textContent = "Logo gagal dibaca. Pilih file lagi."; };
-  reader.onload = () => {
-    splashImageDataUrl = reader.result;
-    $("splashClear").hidden = false;
-    $("splashImageHint").textContent = file.name;
-    updateSplashPreview();
-  };
-  reader.readAsDataURL(file);
-});
-$("splashClear").addEventListener("click", () => {
-  splashImageDataUrl = null;
-  $("splashImage").value = "";
+function clearSplashImage(clearFile = true) {
+  splashUploadId++; splashImageLoading = false; splashImageDataUrl = null;
+  if (clearFile) $("splashImage").value = '';
   $("splashClear").hidden = true;
-  $("splashImageHint").textContent = "PNG/JPEG, maksimal 1 MB. Kosongkan untuk memakai icon aplikasi.";
+  $("splashImageHint").textContent = 'Gambar maksimal 5 MB, otomatis menjadi PNG. Kosongkan untuk memakai icon aplikasi.';
   updateSplashPreview();
+}
+
+$("splashImage").addEventListener("change", async e => {
+  const file = e.target.files[0];
+  clearSplashImage(false);
+  const uploadId = splashUploadId;
+  if (!file) return;
+  splashImageLoading = true;
+  $("splashClear").hidden = false;
+  $("splashImageHint").textContent = 'Mengonversi logo menjadi PNG…';
+  try {
+    const converted = await convertImage(file);
+    if (uploadId !== splashUploadId) return;
+    splashImageDataUrl = converted;
+    $("splashClear").hidden = false;
+    $("splashImageHint").textContent = `${file.name} · PNG siap dipakai`;
+    updateSplashPreview();
+  } catch (error) {
+    if (uploadId !== splashUploadId) return;
+    clearSplashImage();
+    $("splashImageHint").textContent = error.message;
+    fail(error.message);
+  } finally {
+    if (uploadId === splashUploadId) splashImageLoading = false;
+  }
 });
+$("splashClear").addEventListener("click", () => clearSplashImage());
+f.addEventListener('reset', () => queueMicrotask(() => { clearIcon(); clearSplashImage(); }));
 
 // Reveal a collapsed settings panel when browser validation finds its invalid field.
 f.addEventListener("invalid", e => { const panel = e.target.closest('details'); if (panel) panel.open = true; }, true);
@@ -417,6 +578,10 @@ function poll(id) {
 
 f.addEventListener("submit", async (e) => {
   e.preventDefault();
+  if (!f.reportValidity()) return;
+  if (!$("stepOne").hidden) { showStep(true); return; }
+  if (go.disabled) return;
+  if (iconLoading || ($("splashEnabled").checked && splashImageLoading)) return fail('Tunggu logo selesai diproses sebelum build.');
   go.disabled = true; status.className = "";
   status.textContent = "Mengirim permintaan…";
   try {
@@ -424,7 +589,7 @@ f.addEventListener("submit", async (e) => {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         url: $("url").value, platform: f.p.value,
-        name: $("name").value, iconDataUrl, singleFile: $("single").checked,
+        name: $("name").value, iconDataUrl: $("iconfile").files.length ? iconDataUrl : null, singleFile: $("single").checked,
         packageName: $("pkg").value,
         versionName: $("versionName").value, versionCode: $("versionCode").value,
         splash: $("splashEnabled").checked ? splashSettings() : null,

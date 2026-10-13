@@ -14,7 +14,24 @@ npm install
 npm start          # http://localhost:3000
 ```
 
-Buka browser, tempel URL, pilih platform, klik build.
+Buka browser, tempel URL, pilih platform, lalu klik **Next · Kustomisasi**.
+Di langkah kedua, atur logo dan pengaturan opsional, lalu klik **Build & Download**.
+Tombol **Kembali** mempertahankan isian di kedua langkah.
+Logo yang diunggah dikonversi menjadi PNG persegi dengan latar transparan.
+Logo aplikasi dan splash menerima PNG, JPG/JPEG, WebP, SVG, GIF, BMP, TIFF,
+AVIF, dan ICO, maksimal 5 MB dan 16 megapiksel. GIF/format animasi memakai
+frame pertama. Konversi dilakukan di server menggunakan Sharp, tanpa aplikasi
+konversi tambahan. Format di luar daftar ini perlu dikonversi terlebih dahulu.
+Tanpa unggahan, server membaca favicon dari HTML situs (termasuk URL relatif
+dan `apple-touch-icon`), lalu mencoba `/favicon.ico`. Pratinjau dan build membaca
+langsung dari situs, dengan permintaan tanpa cache; layanan favicon pihak ketiga
+tidak dipakai agar ikon versi lama tidak terbawa. Mengosongkan input logo atau
+menekan **Pakai icon situs (auto)** membuang unggahan sebelumnya, termasuk
+konversi yang masih berjalan. Build mengambil ulang favicon sesuai URL terbaru.
+Favicon ICO juga dikonversi ke PNG untuk Android; jika semua sumber gagal,
+aplikasi tetap mendapat ikon bawaan. Naikkan version code untuk pembaruan APK;
+launcher Android tertentu dapat menyimpan ikon aplikasi yang sudah terpasang.
+Ikon Windows dibuat menjadi ICO di Node.js, tanpa ImageMagick atau GraphicsMagick.
 
 ## Versi dan splash screen
 
@@ -28,17 +45,24 @@ Buka **Versi & identitas aplikasi** untuk mengatur:
 Kolom kosong tetap memakai nilai bawaan: versi Android `1.0`, desktop `1.0.0`,
 package `com.html2exe.webapp`, dan version code `1`.
 
-Di **Splash screen (opsional)**, centang **Aktifkan splash screen**. Pilih fade,
-zoom, slide up, bounce, rotate, atau tanpa animasi. Judul, subjudul, warna latar,
-warna teks, dan durasi 500–5000 ms bisa diganti. Logo terpisah menerima PNG/JPEG
-maksimal 1 MB; tanpa logo, splash memakai icon aplikasi. Tombol pratinjau dapat
+Di **Splash screen (opsional)**, centang **Aktifkan splash screen**. Tombol animasi
+menawarkan fade, zoom, slide up, bounce, rotate, pulse, flip, atau tanpa animasi.
+Loading bisa memakai spinner, dots, bars, pulse ring, atau dinonaktifkan.
+Splash memakai bingkai logo dengan sudut bulat, judul, dan indikator loading.
+Judul, subjudul, warna latar,
+warna teks, dan durasi 500–5000 ms bisa diganti. Logo terpisah menerima format
+gambar yang sama, maksimal 5 MB; tanpa logo, splash memakai icon aplikasi. Tombol pratinjau dapat
 memutar ulang animasi. Animasi menghormati pengaturan reduced motion browser
 dan pengaturan animasi sistem Android.
 
 Splash Android tampil ketika aplikasi dibuka, sementara website dimuat di belakangnya.
 Android 12 ke atas tetap memiliki splash bawaan sistem sebelum splash kustom.
+Splash kustom ditutup sesuai durasi yang dipilih, tanpa menunggu callback splash
+sistem atau selesainya loading website.
 Splash desktop muncul setelah DOM halaman awal siap, sekali per sesi halaman;
-tidak mencakup waktu ekstraksi EXE portable atau waktu tunggu jaringan sebelum DOM siap.
+animasi dan durasinya dimulai saat jendela terlihat. Splash desktop memakai Shadow
+DOM agar CSS website tidak mengubah logo, teks, atau indikator loading.
+Splash desktop tidak mencakup waktu ekstraksi EXE portable atau waktu tunggu jaringan sebelum DOM siap.
 Splash tidak aktif secara bawaan dan tidak mengubah website sumber.
 
 API `/api/build` menerima tambahan `versionName`, `versionCode`, `packageName`,
@@ -55,6 +79,7 @@ dan `splash`. Contoh:
   "splash": {
     "enabled": true,
     "animation": "zoom",
+    "loader": "dots",
     "duration": 2000,
     "background": "#ffe253",
     "foreground": "#202020",
@@ -65,6 +90,14 @@ dan `splash`. Contoh:
 ```
 
 Jalankan `npm test` untuk memeriksa validasi dan pembuatan metadata/resource Android.
+
+Setelah memperbarui kode dan `package-lock.json`, jalankan `npm ci --omit=dev`
+untuk memasang dependensi konversi gambar di server. Konversi berada di
+`build-options.js`; tidak ada ketergantungan ke berkas `images.js` terpisah.
+Pastikan `server.js`, `build-options.js`, `public/`, dan template Android ikut
+disalin ke server. Restart proses PM2 dengan
+`pm2 restart html2app --update-env`, lalu build dan instal APK baru. Perubahan
+template tidak memperbarui APK yang sudah terpasang.
 
 ## Jalankan via Docker
 
