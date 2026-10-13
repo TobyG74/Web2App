@@ -4,6 +4,7 @@
   "description": "Paste a URL, get a desktop .exe/.app/.AppImage or Android .apk",
   "type": "module",
   "scripts": {
+    "test": "node --test",
     "start": "node server.js",
     "dev": "nodemon server.js",
     "pm2": "pm2 start ecosystem.config.js"

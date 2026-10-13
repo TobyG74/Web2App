@@ -10,8 +10,8 @@ android {
         applicationId "__PACKAGE_NAME__"
         minSdk 21
         targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        versionCode __VERSION_CODE__
+        versionName "__VERSION_NAME__"
     }
 
     buildTypes {

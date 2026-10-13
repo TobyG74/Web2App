@@ -28,12 +28,12 @@
   .field { margin: 0 0 1rem; min-width: 0; }
   fieldset.field { padding: 0; border: 0; }
   legend { padding: 0; }
-  input[type=url], input[type=text] {
+  input[type=url], input[type=text], input[type=number], select {
     width: 100%; min-width: 0; min-height: 44px; padding: .6rem .75rem;
     border-radius: 0; border: 2px solid var(--line); background: #fff; color: var(--fg); font: inherit;
   }
   input::placeholder { color: var(--mut); opacity: 1; }
-  input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid var(--line); outline-offset: 4px; }
+  input:focus-visible, select:focus-visible, summary:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid var(--line); outline-offset: 4px; }
   .iconrow { display: flex; align-items: center; gap: .8rem; }
   .preview {
     width: 56px; height: 56px; border: 2px solid var(--line);
@@ -81,6 +81,17 @@
     gap: .5rem; margin-bottom: .35rem; padding: .5rem .8rem; border: 2px solid var(--line);
     background: #fff; font-weight: 700; text-decoration: none;
   }
+  .options { margin-bottom: 1rem; border: 2px solid var(--line); }
+  .options summary { min-height: 44px; padding: .65rem .75rem; cursor: pointer; font-size: .85rem; font-weight: 700; }
+  .options[open] summary { border-bottom: 2px solid var(--line); background: var(--bg); }
+  .optionbody { padding: .85rem .75rem; }
+  .optionbody > :last-child { margin-bottom: 0; }
+  .setting-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+  input[type=color] { display: block; width: 100%; height: 44px; padding: .25rem; border: 2px solid var(--line); border-radius: 0; background: #fff; cursor: pointer; }
+  #splashFields { margin: .85rem 0 0; padding: 0; border: 0; min-width: 0; }
+  #splashFields:disabled { opacity: .65; }
+  #splashPreview { position: relative; display: grid; place-items: center; min-height: 260px; padding: .75rem; margin: .75rem 0; border: 2px solid var(--line); background: var(--bg); text-align: center; }
+  .filebtn:disabled { cursor: default; background: var(--bg); }
   @media (hover: hover) {
     button.go:hover:not(:disabled) { transform: translate(2px, 2px); box-shadow: 3px 3px 0 var(--line); }
     .filebtn:hover, .credit .repo:hover { background: var(--accent); }
@@ -96,7 +107,7 @@
     .credit { padding: .75rem 1.25rem; }
   }
   @media (max-width: 360px) {
-    .plats { grid-template-columns: 1fr; }
+    .plats, .setting-grid { grid-template-columns: 1fr; }
   }
   @media (prefers-reduced-motion: reduce) {
     button.go { transition: none; }
@@ -134,12 +145,6 @@
         </div>
       </div>
 
-      <div class="field" id="pkgField" hidden>
-        <label for="pkg">Package name (Android)</label>
-        <input id="pkg" type="text" placeholder="com.perusahaanmu.namaapp" />
-        <span class="mini">Kosongkan = com.html2exe.webapp</span>
-      </div>
-
       <fieldset class="field">
         <legend>Platform</legend>
         <div class="plats">
@@ -149,6 +154,87 @@
           <label class="plat"><input type="radio" name="p" value="apk" /> <span>Android<small>.apk</small></span></label>
         </div>
       </fieldset>
+
+      <details class="options" id="appOptions">
+        <summary>Versi & identitas aplikasi</summary>
+        <div class="optionbody">
+          <div class="field">
+            <label for="versionName">Versi aplikasi</label>
+            <input id="versionName" type="text" maxlength="40" placeholder="1.0.0" aria-describedby="versionHint" />
+            <span class="mini" id="versionHint">Kosongkan = 1.0.0. Format desktop: 1.2.3.</span>
+          </div>
+          <div class="field" id="pkgField" hidden>
+            <label for="pkg">Package name (Android)</label>
+            <input id="pkg" type="text" maxlength="150" placeholder="com.perusahaanmu.namaapp" disabled />
+            <span class="mini">Kosongkan = com.html2exe.webapp</span>
+          </div>
+          <div class="field" id="codeField" hidden>
+            <label for="versionCode">Version code (Android)</label>
+            <input id="versionCode" type="number" min="1" max="2100000000" step="1" placeholder="1" disabled />
+            <span class="mini">Kosongkan = 1. Naikkan angka ini setiap merilis pembaruan.</span>
+          </div>
+        </div>
+      </details>
+
+      <details class="options" id="splashOptions">
+        <summary>Splash screen (opsional)</summary>
+        <div class="optionbody">
+          <label class="check">
+            <input id="splashEnabled" type="checkbox" />
+            <span>Aktifkan splash screen<small>Tampilkan logo dan nama aplikasi sebelum masuk ke website.</small></span>
+          </label>
+          <fieldset id="splashFields" disabled>
+            <legend class="mini">Tampilan splash</legend>
+            <div class="field">
+              <label for="splashTitle">Judul</label>
+              <input id="splashTitle" type="text" maxlength="60" placeholder="Otomatis dari nama aplikasi" />
+            </div>
+            <div class="field">
+              <label for="splashSubtitle">Subjudul (opsional)</label>
+              <input id="splashSubtitle" type="text" maxlength="100" placeholder="Contoh: Selamat datang" />
+            </div>
+            <div class="setting-grid">
+              <div class="field">
+                <label for="splashAnimation">Animasi</label>
+                <select id="splashAnimation">
+                  <option value="none">Tanpa animasi</option>
+                  <option value="fade" selected>Fade</option>
+                  <option value="zoom">Zoom</option>
+                  <option value="slide-up">Slide up</option>
+                  <option value="bounce">Bounce</option>
+                  <option value="rotate">Rotate</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="splashDuration">Durasi (ms)</label>
+                <input id="splashDuration" type="number" min="500" max="5000" step="100" value="2000" required />
+              </div>
+              <div class="field">
+                <label for="splashBackground">Warna latar</label>
+                <input id="splashBackground" type="color" value="#ffe253" />
+              </div>
+              <div class="field">
+                <label for="splashForeground">Warna teks</label>
+                <input id="splashForeground" type="color" value="#202020" />
+              </div>
+            </div>
+            <div class="field">
+              <label for="splashImage">Logo splash (opsional)</label>
+              <div class="iconbtns">
+                <button type="button" class="filebtn" id="splashPick">Pilih logo splash…</button>
+                <button type="button" class="filebtn" id="splashClear" hidden>Pakai icon aplikasi</button>
+                <span class="mini" id="splashImageHint">PNG/JPEG, maksimal 1 MB. Kosongkan untuk memakai icon aplikasi.</span>
+              </div>
+              <input id="splashImage" type="file" accept="image/png,image/jpeg" hidden />
+            </div>
+            <p class="mini" id="splashContrast" aria-live="polite"></p>
+            <label>Pratinjau splash</label>
+            <div id="splashPreview"><span class="mini">Aktifkan splash untuk melihat pratinjau.</span></div>
+            <button type="button" class="filebtn" id="splashReplay">Putar ulang pratinjau</button>
+          </fieldset>
+          <p class="mini">Android: muncul saat aplikasi dibuka. Desktop: muncul setelah halaman awal siap, satu kali per sesi.</p>
+        </div>
+      </details>
 
       <div class="field" id="singleField">
         <label class="check">
@@ -173,13 +259,23 @@
     </footer>
   </main>
 
+<script src="/splash.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const f = $("f"), status = $("status"), go = $("go"), preview = $("preview");
 let iconDataUrl = null;
+let splashImageDataUrl = null;
+let stopSplashPreview = null;
 
 function updatePkgVisibility() {
-  $("pkgField").hidden = f.p.value !== "apk";
+  const android = f.p.value === "apk";
+  $("pkgField").hidden = !android;
+  $("pkg").disabled = !android;
+  $("codeField").hidden = !android;
+  $("versionCode").disabled = !android;
+  $("versionName").placeholder = android ? "1.0" : "1.0.0";
+  $("versionName").pattern = android ? "[a-zA-Z0-9][a-zA-Z0-9._+\\-]*" : "(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)";
+  $("versionHint").textContent = android ? "Kosongkan = 1.0. Contoh: 1.2.0 atau 1.2.0-beta." : "Kosongkan = 1.0.0. Format desktop: 1.2.3.";
   $("singleField").hidden = f.p.value !== "windows"; // portable target is Windows-only
 }
 f.querySelectorAll('input[name="p"]').forEach((r) => r.addEventListener("change", updatePkgVisibility));
@@ -210,6 +306,79 @@ $("iconfile").addEventListener("change", (e) => {
 $("clear").addEventListener("click", () => {
   iconDataUrl = null; $("iconfile").value = ""; $("clear").hidden = true; autoIcon();
 });
+
+function splashSettings() {
+  return {
+    enabled: $("splashEnabled").checked,
+    title: $("splashTitle").value.trim(), subtitle: $("splashSubtitle").value.trim(),
+    animation: $("splashAnimation").value, duration: Number($("splashDuration").value),
+    background: $("splashBackground").value, foreground: $("splashForeground").value,
+    imageDataUrl: splashImageDataUrl,
+  };
+}
+
+function updateSplashPreview() {
+  stopSplashPreview?.();
+  $("splashPreview").textContent = "";
+  $("splashFields").disabled = !$("splashEnabled").checked;
+  if (!$("splashEnabled").checked) {
+    $("splashPreview").textContent = "Aktifkan splash untuk melihat pratinjau.";
+    return;
+  }
+  const settings = splashSettings();
+  const luminance = hex => {
+    const channels = hex.slice(1).match(/../g).map(c => parseInt(c, 16) / 255).map(c => c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4);
+    return channels.reduce((sum, c, i) => sum + c * [.2126, .7152, .0722][i], 0);
+  };
+  const colors = [luminance(settings.background), luminance(settings.foreground)].sort((a, b) => b - a);
+  const contrast = (colors[0] + .05) / (colors[1] + .05);
+  const warning = contrast < 4.5 ? "Warna teks sulit dibaca. Pilih warna dengan kontras minimal 4.5:1." : "";
+  $("splashForeground").setCustomValidity(warning);
+  $("splashContrast").textContent = warning;
+  if (warning || !$("splashDuration").validity.valid) {
+    $("splashPreview").textContent = warning || "Durasi harus antara 500 dan 5000 ms.";
+    return;
+  }
+  settings.title ||= $("name").value.trim() || "Nama aplikasi";
+  settings.imageDataUrl ||= iconDataUrl || preview.querySelector('img')?.src;
+  stopSplashPreview = Web2AppSplash($("splashPreview"), settings, () => {
+    $("splashPreview").textContent = "Pratinjau selesai. Putar ulang untuk melihat animasi.";
+  });
+}
+
+$("splashEnabled").addEventListener("change", updateSplashPreview);
+$("splashFields").addEventListener("input", updateSplashPreview);
+$("splashReplay").addEventListener("click", updateSplashPreview);
+$("name").addEventListener("input", updateSplashPreview);
+$("splashPick").addEventListener("click", () => $("splashImage").click());
+$("splashImage").addEventListener("change", e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (!["image/png", "image/jpeg"].includes(file.type) || file.size > 1024 * 1024) {
+    $("splashImage").value = "";
+    $("splashImageHint").textContent = "Pilih PNG/JPEG dengan ukuran maksimal 1 MB.";
+    return;
+  }
+  const reader = new FileReader();
+  reader.onerror = () => { $("splashImageHint").textContent = "Logo gagal dibaca. Pilih file lagi."; };
+  reader.onload = () => {
+    splashImageDataUrl = reader.result;
+    $("splashClear").hidden = false;
+    $("splashImageHint").textContent = file.name;
+    updateSplashPreview();
+  };
+  reader.readAsDataURL(file);
+});
+$("splashClear").addEventListener("click", () => {
+  splashImageDataUrl = null;
+  $("splashImage").value = "";
+  $("splashClear").hidden = true;
+  $("splashImageHint").textContent = "PNG/JPEG, maksimal 1 MB. Kosongkan untuk memakai icon aplikasi.";
+  updateSplashPreview();
+});
+
+// Reveal a collapsed settings panel when browser validation finds its invalid field.
+f.addEventListener("invalid", e => { const panel = e.target.closest('details'); if (panel) panel.open = true; }, true);
 
 function fail(msg) {
   status.className = "err"; status.textContent = "Gagal: " + msg; go.disabled = false;
@@ -257,6 +426,8 @@ f.addEventListener("submit", async (e) => {
         url: $("url").value, platform: f.p.value,
         name: $("name").value, iconDataUrl, singleFile: $("single").checked,
         packageName: $("pkg").value,
+        versionName: $("versionName").value, versionCode: $("versionCode").value,
+        splash: $("splashEnabled").checked ? splashSettings() : null,
       }),
     });
     const data = await r.json().catch(() => ({}));

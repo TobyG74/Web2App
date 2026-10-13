@@ -4,12 +4,13 @@ import { spawn } from "node:child_process";
 import { mkdtemp, rm, cp, mkdir, readFile, writeFile, readdir } from "node:fs/promises";
 import { existsSync, createWriteStream } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import dns from "node:dns/promises";
 import net from "node:net";
 import pngToIco from "png-to-ico";
+import { parseBuildOptions } from "./build-options.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -17,9 +18,8 @@ const app = express();
 // arrives in CF-Connecting-IP / X-Forwarded-For. Trust the proxy so we can
 // rate-limit per real client.
 app.set("trust proxy", true);
-// Cap the JSON body: an uploaded icon (base64 data URL) can be large, but not
-// unbounded. 2mb is plenty for a PNG icon and stops memory-abuse posts.
-app.use(express.json({ limit: "2mb" }));
+// Allow base64 uploads for both the app icon and the optional splash logo.
+app.use(express.json({ limit: "4mb" }));
 app.use(express.static(join(__dirname, "public")));
 
 // Build job queue 
@@ -149,6 +149,7 @@ function safeName(url) {
 
 const slug = (s) => s.replace(/[^a-z0-9]/gi, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").toLowerCase() || "webapp";
 const xmlEscape = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const androidString = (s) => xmlEscape(JSON.stringify(s));
 
 // Strip control chars, collapse whitespace, and — crucially — drop any leading
 // "-" so the value can never be interpreted as a CLI flag by nativefier
@@ -161,10 +162,6 @@ function sanitizeName(s) {
     .trim()
     .slice(0, 60);
 }
-
-const DEFAULT_PACKAGE = "com.html2exe.webapp";
-// Java package rules: dot-separated identifiers, each starting with a letter.
-const PACKAGE_RE = /^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$/;
 
 // --- SSRF protection -----------------------------------------------------
 function isPrivateIp(ip) {
@@ -277,10 +274,16 @@ app.post("/api/build", async (req, res) => {
   const ip = clientIp(req);
   if (rateLimited(ip)) return res.status(429).json({ error: "Terlalu banyak permintaan, coba lagi nanti" });
 
-  const { url, platform, name: rawName, iconDataUrl, packageName: rawPackage, singleFile } = req.body || {};
+  const { url, platform, name: rawName, iconDataUrl, singleFile } = req.body || {};
 
   if (!["windows", "linux", "mac", "apk"].includes(platform)) {
     return res.status(400).json({ error: "platform tidak dikenal" });
+  }
+  let options;
+  try {
+    options = parseBuildOptions(req.body, platform);
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
   }
   // Validate + block internal/SSRF targets before doing any work.
   let target;
@@ -288,10 +291,6 @@ app.post("/api/build", async (req, res) => {
     target = await assertPublicUrl(url);
   } catch (e) {
     return res.status(400).json({ error: String(e.message || "URL tidak valid") });
-  }
-  const packageName = rawPackage && rawPackage.trim() ? rawPackage.trim() : DEFAULT_PACKAGE;
-  if (platform === "apk" && !PACKAGE_RE.test(packageName)) {
-    return res.status(400).json({ error: "Package name tidak valid, contoh: com.perusahaanmu.namaapp" });
   }
   if (queue.length >= MAX_QUEUE) {
     return res.status(503).json({ error: "Antrian penuh, coba lagi nanti" });
@@ -305,7 +304,7 @@ app.post("/api/build", async (req, res) => {
     status: "queued",
     createdAt: Date.now(),
     work,
-    params: { platform, safeUrl: target.href, rawName, iconDataUrl, packageName, singleFile },
+    params: { platform, safeUrl: target.href, rawName, iconDataUrl, singleFile, options },
   };
   enqueue(job);
   res.status(202).json({ id: job.id });
@@ -331,7 +330,7 @@ app.get("/api/build/:id/download", (req, res) => {
 
 // The actual build. Returns { file, name } for the queue worker to serve later.
 async function runBuild(job) {
-  const { platform, safeUrl, rawName, iconDataUrl, packageName, singleFile } = job.params;
+  const { platform, safeUrl, rawName, iconDataUrl, singleFile, options } = job.params;
   const work = job.work;
   // sanitizeName guarantees the display name can never start with "-"
   // (argument injection) and is bounded/clean before hitting the CLI.
@@ -343,25 +342,53 @@ async function runBuild(job) {
   // Always resolve an icon ourselves: user upload if given, else the site
   // favicon. nativefier's own auto-detect is unreliable, so we pass --icon.
   let iconPath = await resolveIcon(work, iconDataUrl, safeUrl);
+  const splashIconPath = iconPath;
   if (iconPath && platform === "windows") iconPath = await toIco(work, iconPath);
 
   if (platform === "apk") {
-    const apk = await buildApk(work, safeUrl, displayName, iconPath, packageName);
+    const apk = await buildApk(work, safeUrl, displayName, iconPath, options);
     return { file: apk, name: `${fileBase}.apk` };
   }
 
   // desktop: nativefier -> folder
   const out = join(work, "out");
-  const args = ["--name", displayName, "--platform", NATIVEFIER_PLATFORM[platform]];
+  // Positionals precede --inject because its array parser consumes trailing paths.
+  const args = [safeUrl, out, "--name", displayName, "--platform", NATIVEFIER_PLATFORM[platform], "--app-version", options.versionName];
   // ponytail: windows gets a converted .ico; linux takes PNG directly.
   // macOS wants .icns and we don't convert that — needs a Mac anyway.
   if (iconPath) args.push("--icon", iconPath);
-  args.push(safeUrl, out);
+  if (options.splash) {
+    const injection = join(work, 'splash.js');
+    const splash = { ...options.splash, title: options.splash.title || displayName };
+    if (!splash.imageDataUrl && splashIconPath) {
+      splash.imageDataUrl = `data:image/png;base64,${(await readFile(splashIconPath)).toString('base64')}`;
+    }
+    const renderer = await readFile(join(__dirname, 'public/splash.js'), 'utf8');
+    // shortcut: desktop splash starts at DOM ready; use a separate window for a splash before network loading.
+    await writeFile(injection, `${renderer}\n(() => {
+      try {
+        if (sessionStorage.getItem('web2app:splash')) return;
+        sessionStorage.setItem('web2app:splash', '1');
+      } catch {}
+      const host = document.createElement('div');
+      host.style.cssText = 'position:fixed;inset:0;z-index:2147483647;';
+      document.body.append(host);
+      Web2AppSplash(host, ${JSON.stringify(splash)}, () => host.remove());
+    })();`);
+    args.push('--inject', injection);
+  }
   await run(process.execPath, [await binEntry("nativefier"), ...args], { shell: false });
   const built = join(out, (await readdir(out))[0]); // nativefier makes one subfolder
+  const appDir = platform === 'mac'
+    ? join(built, (await readdir(built)).find(file => file.endsWith('.app')), 'Contents/Resources/app')
+    : join(built, 'resources/app');
+  const appPackagePath = join(appDir, 'package.json');
+  const appPackage = JSON.parse(await readFile(appPackagePath, 'utf8'));
+  appPackage.version = options.versionName;
+  await writeFile(appPackagePath, JSON.stringify(appPackage, null, 2));
 
   if (platform === "windows" && singleFile) {
-    const exe = await toPortableExe(work, built, displayName, fileBase, iconPath);
+    const exe = await toPortableExe(work, built, displayName, fileBase, iconPath, options.versionName);
     // level 0: the portable exe is already 7z-compressed inside, so deflating
     // it again costs CPU for ~nothing. The zip is just a delivery wrapper —
     // browsers and AV are far happier with a .zip than a bare .exe.
@@ -392,9 +419,9 @@ function zipToFile(outPath, addFn, level) {
 // Wrap the packaged Electron folder (exe + dlls + .pak) into a single
 // self-contained .exe. electron-builder's `portable` target unpacks to a temp
 // dir at launch, so the user only ever handles one file.
-async function toPortableExe(work, builtDir, displayName, fileBase, iconPath) {
+async function toPortableExe(work, builtDir, displayName, fileBase, iconPath, versionName) {
   // electron-builder wants a project dir with a package.json to read name/version from
-  await writeFile(join(work, "package.json"), JSON.stringify({ name: fileBase, version: "1.0.0" }));
+  await writeFile(join(work, "package.json"), JSON.stringify({ name: fileBase, version: versionName }));
   // With --prepackaged there is no local electron dep to infer the version from,
   // so read it out of the packaged app (electron-packager drops a `version` file).
   const electronVersion = (await readFile(join(builtDir, "version"), "utf8").catch(() => "")).trim();
@@ -456,19 +483,34 @@ async function assertJdk(javaBin) {
   return home;
 }
 
-async function buildApk(work, url, displayName, iconPath, packageName) {
+async function prepareAndroidProject(work, url, displayName, iconPath, options) {
+  const { packageName, versionName, versionCode, splash } = options;
   const proj = join(work, "android");
   await cp(join(__dirname, "android-template"), proj, { recursive: true });
   // inject name + URL into strings.xml placeholders
   const strings = join(proj, "app/src/main/res/values/strings.xml");
   const xml = (await readFile(strings, "utf8"))
-    .replace("__TARGET_URL__", xmlEscape(url))
-    .replace("__APP_NAME__", xmlEscape(displayName));
+    .replace("__TARGET_URL__", () => androidString(url))
+    .replace("__APP_NAME__", () => androidString(displayName));
   await writeFile(strings, xml);
+  await writeFile(join(proj, "app/src/main/res/values/splash.xml"), `<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <bool name="splash_enabled">${Boolean(splash)}</bool>
+    <integer name="splash_duration">${splash?.duration ?? 2000}</integer>
+    <string name="splash_animation" formatted="false">${androidString(splash?.animation ?? 'none')}</string>
+    <string name="splash_title" formatted="false">${androidString(splash?.title || displayName)}</string>
+    <string name="splash_subtitle" formatted="false">${androidString(splash?.subtitle ?? '')}</string>
+    <color name="splash_background">${splash?.background ?? '#ffe253'}</color>
+    <color name="splash_foreground">${splash?.foreground ?? '#202020'}</color>
+</resources>
+`);
   // custom package name: patch build.gradle, then move MainActivity.java
   // into the java/ folder that matches the package (Java requires it)
   const gradlePath = join(proj, "app/build.gradle");
-  await writeFile(gradlePath, (await readFile(gradlePath, "utf8")).replaceAll("__PACKAGE_NAME__", packageName));
+  await writeFile(gradlePath, (await readFile(gradlePath, "utf8"))
+    .replaceAll("__PACKAGE_NAME__", packageName)
+    .replace("__VERSION_NAME__", versionName)
+    .replace("__VERSION_CODE__", String(versionCode)));
   const javaRoot = join(proj, "app/src/main/java");
   const oldDir = join(javaRoot, "com/html2exe/webapp");
   const mainActivity = (await readFile(join(oldDir, "MainActivity.java"), "utf8")).replace("__PACKAGE_NAME__", packageName);
@@ -485,7 +527,18 @@ async function buildApk(work, url, displayName, iconPath, packageName) {
     await cp(iconPath, join(drawable, "app_icon.png"));
     iconAttr = 'android:icon="@drawable/app_icon"';
   }
+  if (splash?.imageDataUrl) {
+    const drawable = join(proj, "app/src/main/res/drawable");
+    await mkdir(drawable, { recursive: true });
+    const extension = splash.imageDataUrl.startsWith('data:image/png;') ? 'png' : 'jpg';
+    await writeFile(join(drawable, `splash_logo.${extension}`), Buffer.from(splash.imageDataUrl.split(',')[1], 'base64'));
+  }
   await writeFile(manifest, (await readFile(manifest, "utf8")).replace("__ICON_ATTR__", iconAttr));
+  return proj;
+}
+
+async function buildApk(work, url, displayName, iconPath, options) {
+  const proj = await prepareAndroidProject(work, url, displayName, iconPath, options);
   // Run the wrapper jar through java directly instead of the gradlew/gradlew.bat
   // scripts. Same thing those scripts do, but immune to the three ways they
   // break: missing +x after a Windows->Linux copy, CRLF line endings, and the
@@ -517,7 +570,8 @@ function cleanup(dir) {
 }
 
 const PORT = process.env.PORT || 4444;
-app.listen(PORT, () => {
+export { app, prepareAndroidProject };
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) app.listen(PORT, () => {
   console.log(`html2exe → http://localhost:${PORT}`);
   if (!ACCESS_TOKEN) console.warn("[warn] ACCESS_TOKEN kosong — endpoint /api/build terbuka. Set ACCESS_TOKEN untuk membatasi akses.");
 });

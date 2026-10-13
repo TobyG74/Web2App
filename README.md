@@ -16,6 +16,56 @@ npm start          # http://localhost:3000
 
 Buka browser, tempel URL, pilih platform, klik build.
 
+## Versi dan splash screen
+
+Buka **Versi & identitas aplikasi** untuk mengatur:
+
+- **Versi aplikasi:** semua platform. Desktop memakai format `1.2.3`;
+  Android juga menerima label seperti `1.2.3-beta`.
+- **Package name:** Android, contoh `com.perusahaanmu.namaapp`.
+- **Version code:** Android, bilangan bulat 1–2100000000. Naikkan untuk setiap pembaruan.
+
+Kolom kosong tetap memakai nilai bawaan: versi Android `1.0`, desktop `1.0.0`,
+package `com.html2exe.webapp`, dan version code `1`.
+
+Di **Splash screen (opsional)**, centang **Aktifkan splash screen**. Pilih fade,
+zoom, slide up, bounce, rotate, atau tanpa animasi. Judul, subjudul, warna latar,
+warna teks, dan durasi 500–5000 ms bisa diganti. Logo terpisah menerima PNG/JPEG
+maksimal 1 MB; tanpa logo, splash memakai icon aplikasi. Tombol pratinjau dapat
+memutar ulang animasi. Animasi menghormati pengaturan reduced motion browser
+dan pengaturan animasi sistem Android.
+
+Splash Android tampil ketika aplikasi dibuka, sementara website dimuat di belakangnya.
+Android 12 ke atas tetap memiliki splash bawaan sistem sebelum splash kustom.
+Splash desktop muncul setelah DOM halaman awal siap, sekali per sesi halaman;
+tidak mencakup waktu ekstraksi EXE portable atau waktu tunggu jaringan sebelum DOM siap.
+Splash tidak aktif secara bawaan dan tidak mengubah website sumber.
+
+API `/api/build` menerima tambahan `versionName`, `versionCode`, `packageName`,
+dan `splash`. Contoh:
+
+```json
+{
+  "url": "https://example.com",
+  "platform": "apk",
+  "name": "Aplikasi Saya",
+  "packageName": "com.perusahaanmu.namaapp",
+  "versionName": "2.1.0",
+  "versionCode": 21,
+  "splash": {
+    "enabled": true,
+    "animation": "zoom",
+    "duration": 2000,
+    "background": "#ffe253",
+    "foreground": "#202020",
+    "title": "Aplikasi Saya",
+    "subtitle": "Selamat datang"
+  }
+}
+```
+
+Jalankan `npm test` untuk memeriksa validasi dan pembuatan metadata/resource Android.
+
 ## Jalankan via Docker
 
 Image sudah membawa semua yang dibutuhkan build Linux: Node, JDK 17, Android SDK,

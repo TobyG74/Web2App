@@ -1,6 +1,8 @@
 package __PACKAGE_NAME__;
 
 import android.Manifest;
+import android.animation.AnimatorSet;
+import android.animation.ObjectAnimator;
 import android.app.Activity;
 import android.app.DownloadManager;
 import android.content.Context;
@@ -11,6 +13,10 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Message;
+import android.provider.Settings;
+import android.view.Gravity;
+import android.view.View;
+import android.view.animation.DecelerateInterpolator;
 import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
 import android.webkit.URLUtil;
@@ -19,10 +25,18 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 
 public class MainActivity extends Activity {
     private WebView web;
     private String host;
+    private FrameLayout splash;
+    private LinearLayout splashContent;
+    private Runnable dismissSplash;
+    private AnimatorSet splashAnimation;
 
     // WebView renders none of these, so navigating to one just shows a blank
     // page. Hand them to DownloadManager instead.
@@ -111,8 +125,118 @@ public class MainActivity extends Activity {
             }
         });
 
-        setContentView(web);
+        FrameLayout root = new FrameLayout(this);
+        root.addView(web, new FrameLayout.LayoutParams(-1, -1));
+        setContentView(root);
+        if (state == null && getResources().getBoolean(R.bool.splash_enabled)) {
+            showSplash(root);
+        }
         web.loadUrl(target);
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private void showSplash(FrameLayout root) {
+        splash = new FrameLayout(this);
+        splash.setBackgroundColor(getResources().getColor(R.color.splash_background));
+        splash.setClickable(true);
+        splash.setPadding(dp(24), dp(24), dp(24), dp(24));
+        splashContent = new LinearLayout(this);
+        splashContent.setOrientation(LinearLayout.VERTICAL);
+        splashContent.setGravity(Gravity.CENTER);
+        FrameLayout.LayoutParams contentParams = new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER);
+        splash.addView(splashContent, contentParams);
+        int logo = getResources().getIdentifier("splash_logo", "drawable", getPackageName());
+        if (logo == 0) logo = getApplicationInfo().icon;
+        if (logo != 0) {
+            ImageView image = new ImageView(this);
+            image.setImageResource(logo);
+            image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            LinearLayout.LayoutParams imageParams = new LinearLayout.LayoutParams(dp(80), dp(80));
+            imageParams.bottomMargin = dp(20);
+            splashContent.addView(image, imageParams);
+        }
+        TextView title = new TextView(this);
+        title.setText(R.string.splash_title);
+        title.setTextSize(24);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        title.setGravity(Gravity.CENTER);
+        title.setTextColor(getResources().getColor(R.color.splash_foreground));
+        splashContent.addView(title);
+        String subtitleText = getString(R.string.splash_subtitle);
+        if (!subtitleText.isEmpty()) {
+            TextView subtitle = new TextView(this);
+            subtitle.setText(subtitleText);
+            subtitle.setTextSize(14);
+            subtitle.setGravity(Gravity.CENTER);
+            subtitle.setTextColor(getResources().getColor(R.color.splash_foreground));
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+            params.topMargin = dp(12);
+            splashContent.addView(subtitle, params);
+        }
+        root.addView(splash, new FrameLayout.LayoutParams(-1, -1));
+        if (Build.VERSION.SDK_INT >= 31) {
+            getSplashScreen().setOnExitAnimationListener(systemSplash -> {
+                systemSplash.remove();
+                startSplash(root);
+            });
+        } else {
+            splash.post(() -> startSplash(root));
+        }
+    }
+
+    private void startSplash(FrameLayout root) {
+        if (isFinishing() || isDestroyed()) return;
+        String animation = getString(R.string.splash_animation);
+        int duration = getResources().getInteger(R.integer.splash_duration);
+        boolean animate = !"none".equals(animation)
+                && Settings.Global.getFloat(getContentResolver(), Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0;
+        if (animate) {
+            splashAnimation = new AnimatorSet();
+            ObjectAnimator fade = ObjectAnimator.ofFloat(splashContent, View.ALPHA, 0f, 1f);
+            switch (animation) {
+                case "zoom":
+                    splashAnimation.playTogether(fade,
+                            ObjectAnimator.ofFloat(splashContent, View.SCALE_X, .75f, 1f),
+                            ObjectAnimator.ofFloat(splashContent, View.SCALE_Y, .75f, 1f));
+                    break;
+                case "slide-up":
+                    splashAnimation.playTogether(fade,
+                            ObjectAnimator.ofFloat(splashContent, View.TRANSLATION_Y, dp(36), 0f));
+                    break;
+                case "bounce":
+                    splashAnimation.playTogether(fade,
+                            ObjectAnimator.ofFloat(splashContent, View.TRANSLATION_Y, dp(36), -dp(12), dp(5), 0f));
+                    break;
+                case "rotate":
+                    splashAnimation.playTogether(fade,
+                            ObjectAnimator.ofFloat(splashContent, View.ROTATION, -12f, 0f),
+                            ObjectAnimator.ofFloat(splashContent, View.SCALE_X, .85f, 1f),
+                            ObjectAnimator.ofFloat(splashContent, View.SCALE_Y, .85f, 1f));
+                    break;
+                default:
+                    splashAnimation.playTogether(fade);
+            }
+            splashAnimation.setDuration(Math.min(600, duration));
+            splashAnimation.setInterpolator(new DecelerateInterpolator());
+            splashAnimation.start();
+        }
+        dismissSplash = () -> {
+            if (animate) splash.animate().alpha(0f).setDuration(200).withEndAction(() -> root.removeView(splash));
+            else root.removeView(splash);
+        };
+        splash.postDelayed(dismissSplash, duration);
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (splash != null && dismissSplash != null) splash.removeCallbacks(dismissSplash);
+        if (splashAnimation != null) splashAnimation.cancel();
+        if (splash != null) splash.animate().cancel();
+        if (web != null) web.destroy();
+        super.onDestroy();
     }
 
     private boolean looksLikeFile(Uri uri) {
